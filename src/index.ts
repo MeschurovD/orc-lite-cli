@@ -10,6 +10,7 @@ import { daemonCommand } from './commands/daemon.js'
 import { registerCommand } from './commands/register.js'
 import { scheduleCommand } from './commands/schedule.js'
 import { addCommand } from './commands/add.js'
+import { docsCommand } from './commands/docs.js'
 
 program
   .name('orc-lite')
@@ -120,6 +121,17 @@ program
   .option('-q, --queue <number>', 'queue number (default: first pending queue)')
   .action((file, options) => {
     void addCommand(file, options)
+  })
+
+// ─── docs ─────────────────────────────────────────────────────────────────────
+
+program
+  .command('docs')
+  .description('Generate .orc-lite.md reference file in the current directory')
+  .option('-o, --output <path>', 'output file path', '.orc-lite.md')
+  .option('-f, --force', 'overwrite if file already exists')
+  .action((options) => {
+    docsCommand(options)
   })
 
 program.parse()
