@@ -1,0 +1,13 @@
+{
+  "target_branch": "main",
+  "tasks_dir": "tasks",
+  "logs_dir": ".orc-lite/logs",
+  "adapter_options": {},
+  "push": "none",
+  "max_retries": 0,
+  "on_failure": "stop",
+  "tasks": [
+    { "file": "legacy1.md", "status": "pending" },
+    { "file": "legacy2.md", "status": "done" }
+  ]
+}

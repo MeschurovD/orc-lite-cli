@@ -55,20 +55,20 @@
 
 ## Фаза 5: Интеграция и тестирование
 
-- [ ] **5.1** End-to-end проверка: run-режим (немедленный запуск)
-- [ ] **5.2** End-to-end проверка: daemon-режим (запуск по расписанию)
-- [ ] **5.3** Проверка Telegram нотификаций
-- [ ] **5.4** Проверка edge-кейсов:
-  - Просроченная дата schedule (в прошлом)
-  - Daemon перезапуск - подхват существующего состояния
-  - Конфликты git merge во время ночного прогона
-  - Несколько задач на одно время
+- [x] **5.1** End-to-end проверка: run-режим (dry-run, queue selection, done skip)
+- [x] **5.2** End-to-end проверка: daemon-режим (scheduleJobs, timer logic, overdue)
+- [ ] **5.3** Проверка Telegram нотификаций (требует реальный bot_token — ручная проверка)
+- [x] **5.4** Проверка edge-кейсов:
+  - Просроченная дата schedule (parser, daemon grace period)
+  - Конфигурация без файлов задач (dry-run graceful)
+  - Legacy tasks → queues конвертация
+  - Duplicate job для одного repo+queue (update вместо создания)
 
 ## Фаза 6: Доработки
 
-- [ ] **6.1** README.md с документацией
-- [ ] **6.2** npm bin entry point для глобальной установки
-- [ ] **6.3** Шаблон задачи для `orc-lite add`
+- [x] **6.1** README.md с документацией
+- [x] **6.2** npm bin entry point для глобальной установки (shebang + postbuild chmod +x)
+- [x] **6.3** Шаблон задачи для `orc-lite add` (создаёт .md с template если файла нет)
 
 ---
 

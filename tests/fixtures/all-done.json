@@ -1,0 +1,18 @@
+{
+  "target_branch": "main",
+  "tasks_dir": "tasks",
+  "logs_dir": ".orc-lite/logs",
+  "adapter_options": {},
+  "push": "none",
+  "max_retries": 0,
+  "on_failure": "stop",
+  "queues": [
+    {
+      "name": "finished",
+      "status": "done",
+      "tasks": [
+        { "file": "task1.md", "status": "done" }
+      ]
+    }
+  ]
+}

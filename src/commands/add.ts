@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { resolve, dirname, basename } from 'node:path'
 import chalk from 'chalk'
 import { loadConfig, saveConfig } from '../core/config.js'
 import type { TaskDefinition } from '../types.js'
@@ -56,11 +56,12 @@ export function addCommand(file: string, options: AddOptions): void {
     process.exit(1)
   }
 
-  // Warn if file doesn't exist (but allow adding anyway)
+  // Create template file if it doesn't exist
   const taskPath = resolve(cwd, config.tasks_dir, file)
   if (!existsSync(taskPath)) {
-    console.log(chalk.yellow(`Warning: task file not found: ${taskPath}`))
-    console.log(chalk.dim('  Task added to config anyway. Create the file before running.'))
+    mkdirSync(dirname(taskPath), { recursive: true })
+    writeFileSync(taskPath, buildTaskTemplate(file))
+    console.log(chalk.dim(`  Created task file: ${taskPath}`))
   }
 
   const task: TaskDefinition = {
@@ -76,4 +77,29 @@ export function addCommand(file: string, options: AddOptions): void {
     ` Added "${chalk.bold(file)}" to queue ${chalk.bold(label)}` +
     chalk.dim(` (task #${queue.tasks.length})`),
   )
+}
+
+// ─── Template ─────────────────────────────────────────────────────────────────
+
+function buildTaskTemplate(file: string): string {
+  const name = basename(file, '.md').replace(/[-_]/g, ' ')
+  return `# ${name}
+
+## Goal
+
+<!-- Describe what needs to be done -->
+
+## Acceptance criteria
+
+<!-- List the specific outcomes that define "done" -->
+- [ ]
+
+## Context
+
+<!-- Any relevant files, links, or background information -->
+
+## Notes
+
+<!-- Additional constraints or hints for the AI -->
+`
 }

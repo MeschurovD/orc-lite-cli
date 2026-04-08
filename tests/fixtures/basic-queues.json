@@ -1,0 +1,27 @@
+{
+  "target_branch": "main",
+  "tasks_dir": "tasks",
+  "logs_dir": ".orc-lite/logs",
+  "adapter_options": {},
+  "push": "none",
+  "max_retries": 0,
+  "on_failure": "stop",
+  "queues": [
+    {
+      "name": "first",
+      "status": "pending",
+      "tasks": [
+        { "file": "task1.md", "status": "pending" },
+        { "file": "task2.md", "status": "done" }
+      ]
+    },
+    {
+      "name": "second",
+      "schedule": "2026-12-01 02:30",
+      "status": "pending",
+      "tasks": [
+        { "file": "task3.md", "status": "pending" }
+      ]
+    }
+  ]
+}
