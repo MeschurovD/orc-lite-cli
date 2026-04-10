@@ -9,10 +9,31 @@ Key feature over orc-cli: **built-in scheduler** for running task queues at a se
 
 ## Install
 
+**Глобальная установка из GitHub (без публикации в npm):**
+
 ```bash
-npm install -g orc-lite-cli
-# or run directly from the repo:
-npm run build && node dist/index.js --help
+npm install -g github:MeschurovD/orc-lite-cli
+```
+
+npm автоматически установит зависимости и соберёт TypeScript. После этого команда `orc-lite` доступна глобально.
+
+**Обновление до последней версии:**
+
+```bash
+npm install -g github:MeschurovD/orc-lite-cli
+```
+
+**Установка конкретного коммита или тега:**
+
+```bash
+npm install -g github:MeschurovD/orc-lite-cli#abc1234
+npm install -g github:MeschurovD/orc-lite-cli#v0.2.0
+```
+
+**Удаление:**
+
+```bash
+npm uninstall -g orc-lite-cli
 ```
 
 Requires: **Node.js ≥ 18**, **opencode** in PATH, **git**.
