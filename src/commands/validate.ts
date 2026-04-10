@@ -75,24 +75,36 @@ export async function validateCommand(options: { config?: string }): Promise<voi
     ok(`${totalContextFiles} context file${totalContextFiles !== 1 ? 's' : ''} found`)
   }
 
-  // ── 5. Target branch exists ──────────────────────────────────────────────────
+  // ── 5. Git checks (depend on strategy) ──────────────────────────────────────
   const git = new GitService(cwd)
   try {
     await git.ensureGitRepo()
-    await git.ensureBranchExists(config.target_branch)
-    ok(`Target branch "${config.target_branch}" exists`)
+    ok('Git repository found')
   } catch (err) {
     fail((err as Error).message)
     hasErrors = true
   }
 
-  // ── 6. Working tree is clean ─────────────────────────────────────────────────
-  try {
-    await git.ensureCleanWorkingTree()
-    ok('Working tree clean')
-  } catch {
-    fail('Working tree has uncommitted changes')
-    hasErrors = true
+  if (config.git_strategy === 'branch') {
+    try {
+      await git.ensureBranchExists(config.target_branch)
+      ok(`Target branch "${config.target_branch}" exists`)
+    } catch (err) {
+      fail((err as Error).message)
+      hasErrors = true
+    }
+
+    try {
+      await git.ensureCleanWorkingTree()
+      ok('Working tree clean')
+    } catch {
+      fail('Working tree has uncommitted changes')
+      hasErrors = true
+    }
+  } else if (config.git_strategy === 'commit') {
+    ok(`Git strategy: commit (no branch required)`)
+  } else {
+    ok(`Git strategy: none (no git operations)`)
   }
 
   // ── 7. opencode installed ────────────────────────────────────────────────────

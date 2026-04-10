@@ -41,11 +41,13 @@ export async function runQueue(options: QueueRunOptions = {}): Promise<QueueResu
   const git = new GitService(cwd)
   await git.ensureGitRepo()
 
-  if (!options.dryRun) {
+  if (!options.dryRun && config.git_strategy !== 'none') {
     await checkAndHandleDirtyTree(git, cwd, resolvedConfigPath, config)
   }
 
-  await git.ensureBranchExists(config.target_branch)
+  if (config.git_strategy === 'branch') {
+    await git.ensureBranchExists(config.target_branch)
+  }
 
   if (!options.dryRun) {
     const adapter = createAdapter(config.adapter_options)
@@ -146,9 +148,11 @@ export async function runQueue(options: QueueRunOptions = {}): Promise<QueueResu
         })
       } catch { /* best effort */ }
 
-      try {
-        await git.checkoutBranch(config.target_branch)
-      } catch { /* best effort */ }
+      if (config.git_strategy === 'branch') {
+        try {
+          await git.checkoutBranch(config.target_branch)
+        } catch { /* best effort */ }
+      }
 
       const doneCount = queue.tasks.filter((t) => t.status === 'done').length
       notifier?.notify('pipeline_failed', {
@@ -246,10 +250,13 @@ export async function runQueue(options: QueueRunOptions = {}): Promise<QueueResu
   }
 
   // ── Push at end ─────────────────────────────────────────────────────────────
-  if (config.push === 'end') {
-    pipelineLogger.info(`Pushing ${config.target_branch} to origin...`)
+  if (config.push === 'end' && config.git_strategy !== 'none') {
+    const pushBranch = config.git_strategy === 'branch'
+      ? config.target_branch
+      : await git.getCurrentBranch()
+    pipelineLogger.info(`Pushing ${pushBranch} to origin...`)
     try {
-      await git.pushBranch(config.target_branch)
+      await git.pushBranch(pushBranch)
       pipelineLogger.success('Pushed')
     } catch (err) {
       pipelineLogger.error(`Push failed: ${(err as Error).message}`)
@@ -384,7 +391,11 @@ function runDryRun(
     const fileExists = existsSync(taskFilePath)
 
     console.log(`  ${taskNum}. ${task.file}`)
-    console.log(`     Branch: ${branchName}`)
+    if (config.git_strategy === 'branch') {
+      console.log(`     Branch: ${branchName}`)
+    } else {
+      console.log(`     Git:    ${config.git_strategy} (no branch)`)
+    }
     console.log(`     File:   ${fileExists ? '✓ exists' : '✗ NOT FOUND'}`)
 
     if (fileExists) {

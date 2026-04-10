@@ -25,7 +25,14 @@ export async function initCommand(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
 
   try {
-    const targetBranch = (await prompt(rl, `Target branch ${chalk.dim('(main)')} : `)).trim() || 'main'
+    const gitStrategyInput = (await prompt(rl, `Git strategy ${chalk.dim('(branch/commit/none) [branch]')} : `)).trim() || 'branch'
+    const gitStrategy = (['branch', 'commit', 'none'].includes(gitStrategyInput) ? gitStrategyInput : 'branch') as 'branch' | 'commit' | 'none'
+
+    let targetBranch = ''
+    if (gitStrategy === 'branch') {
+      targetBranch = (await prompt(rl, `Target branch ${chalk.dim('(main)')} : `)).trim() || 'main'
+    }
+
     const tasksDir = (await prompt(rl, `Tasks directory ${chalk.dim('(./tasks)')} : `)).trim() || './tasks'
     const logsDir = (await prompt(rl, `Logs directory ${chalk.dim('(./.orc-lite/logs)')} : `)).trim() || './.orc-lite/logs'
     const verifyCmd = (await prompt(rl, `Verification command ${chalk.dim('(leave empty to skip)')} : `)).trim()
@@ -74,6 +81,7 @@ export async function initCommand(): Promise<void> {
       on_failure: 'stop',
       adapter_options: { timeout: 600 },
       push: 'none',
+      git_strategy: gitStrategy,
       max_retries: 0,
       queues: [queue],
     }

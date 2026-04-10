@@ -103,6 +103,7 @@ Backward compat: a flat \`"tasks"\` array (orc-cli format) is automatically wrap
 | \`logs_dir\` | string | *required* | Directory for log output |
 | \`on_failure\` | \`"stop"\` | \`"stop"\` | Pipeline behavior on failure |
 | \`push\` | \`"each"\` \\| \`"end"\` \\| \`"none"\` | \`"none"\` | When to push target branch to origin |
+| \`git_strategy\` | \`"branch"\` \\| \`"commit"\` \\| \`"none"\` | \`"branch"\` | Git mode: branch-per-task, commit-in-place, or no git |
 | \`max_retries\` | number | \`0\` | Default retry count for failed tasks |
 | \`verification_cmd\` | string | — | Command to run after each task |
 | \`commit_template\` | string | \`"task: {{task_name}}"\` | Commit message template |
@@ -184,20 +185,25 @@ Global scheduler registry: \`~/.orc-lite/scheduler.json\`
 
 ## Pipeline Flow
 
-1. Checkout \`target_branch\`
-2. Create task branch \`task/<name>\`
-3. Run \`pre_task\` hook
-4. For each stage in \`task.stages\` (default: \`["implement"]\`):
-   - \`implement\`: build prompt → run opencode → commit
-   - \`verify\`: run opencode with implementation summary → parse score → commit if changes
-   - \`test\`: run opencode → write/run tests → commit
-5. Run \`post_task\` hook
-6. Run \`verification_cmd\` (if configured)
-7. Merge into \`target_branch\`
-8. Push if \`push: "each"\` → send notification
-9. Update task status → repeat for next task
+Behaviour depends on \`git_strategy\`:
 
-If any step fails and \`max_retries > 0\`, branch is recreated and all stages retried from scratch.
+**\`branch\` (default)** — isolated branch per task:
+1. Checkout \`target_branch\`, create \`task/<name>\`
+2. Run \`pre_task\` hook
+3. For each stage: run opencode → commit changes
+4. Run \`post_task\` hook + \`verification_cmd\`
+5. Merge into \`target_branch\`, push if \`push: "each"\`
+
+**\`commit\`** — stay in current branch, commit after each task:
+- No branch creation or merge
+- Commits to whatever branch is currently checked out
+- Push if \`push: "each"\` / \`"end"\`
+
+**\`none\`** — no git operations at all:
+- Just runs opencode and leaves changes uncommitted
+- Ignores \`push\` setting
+
+If any step fails and \`max_retries > 0\`, the task is retried from scratch.
 On failure or merge conflict the queue stops. Logs: \`<logs_dir>/<task-name>.log\`.
 
 ## Resuming After Failure

@@ -61,16 +61,18 @@ export async function runTask(
 
     try {
       // ── Git setup ───────────────────────────────────────────────────────────
-      log.step(`checkout ${config.target_branch}`)
-      await git.checkoutBranch(config.target_branch)
+      if (config.git_strategy === 'branch') {
+        log.step(`checkout ${config.target_branch}`)
+        await git.checkoutBranch(config.target_branch)
 
-      if (await git.branchExists(branchName)) {
-        log.step(`branch "${branchName}" exists — deleting and recreating`)
-        await git.deleteBranch(branchName)
+        if (await git.branchExists(branchName)) {
+          log.step(`branch "${branchName}" exists — deleting and recreating`)
+          await git.deleteBranch(branchName)
+        }
+
+        log.step(`create branch: ${branchName}`)
+        await git.createAndCheckoutBranch(branchName, config.target_branch)
       }
-
-      log.step(`create branch: ${branchName}`)
-      await git.createAndCheckoutBranch(branchName, config.target_branch)
 
       // ── Pre-task hook ───────────────────────────────────────────────────────
       const hooks = resolveHooks(task.hooks, config.hooks)
@@ -126,7 +128,7 @@ export async function runTask(
           break
         }
 
-        if (await git.hasChanges()) {
+        if (config.git_strategy !== 'none' && await git.hasChanges()) {
           let commitMsg: string
           if (stageName === 'implement') {
             const firstLine = getFirstLine(resolve(workingDir, config.tasks_dir, task.file))
@@ -176,7 +178,7 @@ export async function runTask(
         log.success('verification passed')
       }
 
-      if (await git.hasChanges()) {
+      if (config.git_strategy !== 'none' && await git.hasChanges()) {
         const firstLine = getFirstLine(resolve(workingDir, config.tasks_dir, task.file))
         const commitMsg = renderCommitMessage(config.commit_template, {
           task_name: taskName,
@@ -191,34 +193,39 @@ export async function runTask(
       }
 
       // ── Merge into target ───────────────────────────────────────────────────
-      log.step(`checkout ${config.target_branch}`)
-      await git.checkoutBranch(config.target_branch)
+      if (config.git_strategy === 'branch') {
+        log.step(`checkout ${config.target_branch}`)
+        await git.checkoutBranch(config.target_branch)
 
-      log.step(`merge ${branchName} → ${config.target_branch}`)
-      const mergeResult = await git.mergeBranch(branchName)
+        log.step(`merge ${branchName} → ${config.target_branch}`)
+        const mergeResult = await git.mergeBranch(branchName)
 
-      if (!mergeResult.success) {
-        const reason = `merge conflict: ${branchName} → ${config.target_branch}`
-        log.error(reason)
-        const durationMs = Date.now() - startTime
-        updateTaskStatus(configPath, queueIndex, taskIndex, {
-          status: 'conflict',
-          completed_at: new Date().toISOString(),
-          error: reason,
-        })
-        log.close()
-        pipelineLogger.error(`Task ${taskIndex + 1} CONFLICT — stopping queue`)
-        await notifier?.notify('task_conflict', {
-          taskFile: task.file, taskIndex, totalTasks, durationMs, error: reason, projectName, queueName,
-        })
-        return { success: false, status: 'conflict', durationMs, error: reason }
+        if (!mergeResult.success) {
+          const reason = `merge conflict: ${branchName} → ${config.target_branch}`
+          log.error(reason)
+          const durationMs = Date.now() - startTime
+          updateTaskStatus(configPath, queueIndex, taskIndex, {
+            status: 'conflict',
+            completed_at: new Date().toISOString(),
+            error: reason,
+          })
+          log.close()
+          pipelineLogger.error(`Task ${taskIndex + 1} CONFLICT — stopping queue`)
+          await notifier?.notify('task_conflict', {
+            taskFile: task.file, taskIndex, totalTasks, durationMs, error: reason, projectName, queueName,
+          })
+          return { success: false, status: 'conflict', durationMs, error: reason }
+        }
       }
 
       // ── Push if configured ──────────────────────────────────────────────────
       if (config.push === 'each') {
-        log.step(`pushing ${config.target_branch} to origin`)
+        const pushBranch = config.git_strategy === 'branch'
+          ? config.target_branch
+          : await git.getCurrentBranch()
+        log.step(`pushing ${pushBranch} to origin`)
         try {
-          await git.pushBranch(config.target_branch)
+          await git.pushBranch(pushBranch)
           log.success('pushed')
         } catch (err) {
           log.error(`push failed (non-blocking): ${(err as Error).message}`)
@@ -261,7 +268,9 @@ export async function runTask(
     retry_count: maxRetries > 0 ? maxRetries : undefined,
   })
 
-  try { await git.checkoutBranch(config.target_branch) } catch { /* best effort */ }
+  if (config.git_strategy === 'branch') {
+    try { await git.checkoutBranch(config.target_branch) } catch { /* best effort */ }
+  }
 
   log.close()
   const retryInfo = maxRetries > 0 ? ` (after ${maxRetries + 1} attempts)` : ''

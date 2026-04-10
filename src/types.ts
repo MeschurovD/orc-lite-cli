@@ -117,13 +117,15 @@ export interface DaemonConfig {
 
 export type PushMode = 'each' | 'end' | 'none'
 
+export type GitStrategy = 'branch' | 'commit' | 'none'
+
 export interface OpenCodeAdapterOptions {
   timeout?: number
 }
 
 export interface OrcLiteConfig {
   project_name?: string
-  target_branch: string
+  target_branch: string  // empty string allowed when git_strategy !== 'branch'
   tasks_dir: string
   logs_dir: string
   on_failure: 'stop'
@@ -132,6 +134,7 @@ export interface OrcLiteConfig {
   commit_template?: string
   adapter_options: OpenCodeAdapterOptions
   push: PushMode
+  git_strategy: GitStrategy
   max_retries: number
   hooks?: TaskHooks
   stages?: StagesConfig

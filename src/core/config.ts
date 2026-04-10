@@ -87,7 +87,7 @@ const daemonSchema = z.object({
 
 const baseSchema = z.object({
   project_name: z.string().optional(),
-  target_branch: z.string().min(1, 'target_branch is required'),
+  target_branch: z.string().default(''),
   tasks_dir: z.string().min(1, 'tasks_dir is required'),
   logs_dir: z.string().min(1, 'logs_dir is required'),
   on_failure: z.literal('stop').default('stop'),
@@ -98,6 +98,7 @@ const baseSchema = z.object({
     timeout: z.number().positive().optional(),
   }).default({}),
   push: z.enum(['each', 'end', 'none']).default('none'),
+  git_strategy: z.enum(['branch', 'commit', 'none']).default('branch'),
   max_retries: z.number().int().min(0).default(0),
   hooks: hooksSchema,
   stages: stagesConfigSchema,
@@ -110,6 +111,14 @@ const baseSchema = z.object({
 const rawConfigSchema = baseSchema.extend({
   queues: z.array(queueSchema).optional(),
   tasks: z.array(taskSchema).optional(),
+}).superRefine((data, ctx) => {
+  if (data.git_strategy === 'branch' && !data.target_branch) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['target_branch'],
+      message: 'target_branch is required when git_strategy is "branch"',
+    })
+  }
 })
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -158,6 +167,7 @@ export function loadConfig(configPath?: string): { config: OrcLiteConfig; path: 
     commit_template: data.commit_template,
     adapter_options: data.adapter_options,
     push: data.push,
+    git_strategy: data.git_strategy,
     max_retries: data.max_retries,
     hooks: data.hooks,
     stages: data.stages,
