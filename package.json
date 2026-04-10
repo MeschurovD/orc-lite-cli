@@ -15,6 +15,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "prepare": "tsc && chmod +x dist/index.js",
     "build": "tsc && chmod +x dist/index.js",
     "build:watch": "tsc --watch",
     "dev": "tsx src/index.ts",
