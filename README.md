@@ -275,12 +275,8 @@ The simple `tasks` format from orc-cli is supported and automatically wrapped in
 orc-lite add fix-api-bug.md
 orc-lite add refactor-auth.md
 
-# Schedule to run at 2 AM tonight
+# Schedule to run at 2 AM — daemon starts automatically in background
 orc-lite schedule 2:00
-
-# Register and start daemon (or just run daemon — it reads scheduler.json)
-orc-lite register
-orc-lite daemon &
 
 # Next morning: check results
 orc-lite status

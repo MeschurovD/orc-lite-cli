@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -12,6 +12,32 @@ export function getSchedulerDir(): string {
 
 export function getSchedulerPath(): string {
   return join(getSchedulerDir(), 'scheduler.json')
+}
+
+export function getDaemonPidPath(): string {
+  return join(getSchedulerDir(), 'daemon.pid')
+}
+
+export function isDaemonRunning(): boolean {
+  const pidPath = getDaemonPidPath()
+  if (!existsSync(pidPath)) return false
+  const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10)
+  if (isNaN(pid)) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    // Stale PID file — clean it up
+    try { unlinkSync(pidPath) } catch { /* ignore */ }
+    return false
+  }
+}
+
+export function getDaemonPid(): number | null {
+  const pidPath = getDaemonPidPath()
+  if (!existsSync(pidPath)) return null
+  const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10)
+  return isNaN(pid) ? null : pid
 }
 
 // ─── Registry I/O ─────────────────────────────────────────────────────────────

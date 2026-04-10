@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 import chalk from 'chalk'
 import { loadConfig, saveConfig } from '../core/config.js'
@@ -9,6 +10,8 @@ import {
   cancelJobsForRepo,
   loadRegistry,
   getSchedulerPath,
+  isDaemonRunning,
+  getDaemonPid,
 } from '../core/scheduler.js'
 
 export interface ScheduleOptions {
@@ -136,8 +139,7 @@ export async function scheduleCommand(
     chalk.dim(` → ${formatScheduleTime(scheduledAt)}`) +
     chalk.dim(` [${job.id}]`),
   )
-  console.log()
-  console.log(chalk.dim(`Run ${chalk.white('orc-lite daemon')} to start the scheduler`))
+  await ensureDaemon()
   console.log()
 }
 
@@ -215,6 +217,32 @@ async function handleCancel(options: ScheduleOptions): Promise<void> {
     } else {
       console.log(chalk.dim('No scheduled jobs found for this repo.'))
     }
+  }
+}
+
+// ─── Daemon auto-start ────────────────────────────────────────────────────────
+
+async function ensureDaemon(): Promise<void> {
+  if (isDaemonRunning()) {
+    const pid = getDaemonPid()
+    console.log(chalk.dim(`  Daemon already running (PID ${pid}) — will pick up the job on next poll`))
+    return
+  }
+
+  const child = spawn(process.execPath, [process.argv[1]!, 'daemon'], {
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+
+  // Give the daemon a moment to write its PID file
+  await new Promise((r) => setTimeout(r, 400))
+
+  const pid = getDaemonPid()
+  if (pid) {
+    console.log(chalk.green('✓') + ` Daemon started in background (PID ${pid})`)
+  } else {
+    console.log(chalk.yellow('  Could not verify daemon started — run `orc-lite daemon` manually if needed'))
   }
 }
 

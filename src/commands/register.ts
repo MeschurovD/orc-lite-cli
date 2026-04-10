@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 import chalk from 'chalk'
 import { loadConfig } from '../core/config.js'
@@ -8,6 +9,8 @@ import {
   loadRegistry,
   saveRegistry,
   getSchedulerPath,
+  isDaemonRunning,
+  getDaemonPid,
 } from '../core/scheduler.js'
 
 export interface RegisterOptions {
@@ -113,12 +116,40 @@ export async function registerCommand(options: RegisterOptions): Promise<void> {
     if (skipped > 0) parts.push(chalk.dim(`${skipped} skipped`))
     if (warnings > 0) parts.push(chalk.yellow(`${warnings} warnings`))
     console.log(parts.join('  '))
-    console.log()
-    console.log(chalk.dim(`Run ${chalk.white('orc-lite daemon')} to start the scheduler`))
     console.log(chalk.dim(`Run ${chalk.white('orc-lite schedule --list')} to see all jobs`))
+
+    if (registered > 0) {
+      console.log()
+      await ensureDaemon()
+    }
   }
 
   console.log()
   console.log(chalk.dim(`Scheduler: ${getSchedulerPath()}`))
   console.log()
+}
+
+// ─── Daemon auto-start ────────────────────────────────────────────────────────
+
+async function ensureDaemon(): Promise<void> {
+  if (isDaemonRunning()) {
+    const pid = getDaemonPid()
+    console.log(chalk.dim(`  Daemon already running (PID ${pid}) — will pick up jobs on next poll`))
+    return
+  }
+
+  const child = spawn(process.execPath, [process.argv[1]!, 'daemon'], {
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+
+  await new Promise((r) => setTimeout(r, 400))
+
+  const pid = getDaemonPid()
+  if (pid) {
+    console.log(chalk.green('✓') + ` Daemon started in background (PID ${pid})`)
+  } else {
+    console.log(chalk.yellow('  Could not verify daemon started — run `orc-lite daemon` manually if needed'))
+  }
 }
