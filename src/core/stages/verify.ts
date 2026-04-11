@@ -7,7 +7,7 @@ import type { StageContext } from './index.js'
 
 const DEFAULT_THRESHOLD = 80
 
-interface VerifyOutput {
+export interface VerifyOutput {
   approved: boolean
   score: number
   reason: string | null
@@ -16,7 +16,7 @@ interface VerifyOutput {
   issues: string[]
 }
 
-function parseVerifyOutput(output: string): VerifyOutput | null {
+export function parseVerifyOutput(output: string): VerifyOutput | null {
   const newMatch = output.match(/\{[\s\S]*"approved"[\s\S]*"score"[\s\S]*\}/)
   if (newMatch) {
     try {
