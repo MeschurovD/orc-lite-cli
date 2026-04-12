@@ -69,7 +69,10 @@ if (raw.tasks && !raw.queues) {
   "target_branch": "main",
   "tasks_dir": "tasks",
   "logs_dir": ".orc-lite/logs",
-  "adapter_options": {},
+  "adapter_options": {
+    "timeout": 300,               // таймаут на задачу в секундах (опционально)
+    "insecure_tls": false         // запустить opencode с NODE_TLS_REJECT_UNAUTHORIZED=0 (опционально)
+  },
   "push": "end",                   // each | end | none
   "max_retries": 1,
   "hooks": {
