@@ -4,6 +4,9 @@
   "description": "Lightweight orchestrator for autonomous task execution with built-in scheduler",
   "type": "module",
   "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "orc-lite": "./dist/index.js"
   },
