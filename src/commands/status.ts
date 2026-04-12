@@ -27,7 +27,21 @@ const QUEUE_STATUS_COLORS: Record<QueueStatus, (s: string) => string> = {
   failed: chalk.red,
 }
 
-export function statusCommand(options: { config?: string }): void {
+export function statusCommand(options: { config?: string; watch?: number | boolean }): void {
+  if (options.watch) {
+    const intervalS = typeof options.watch === 'number' ? options.watch : 2
+    const run = (): void => {
+      process.stdout.write('\x1Bc') // clear screen
+      printStatus(options)
+    }
+    run()
+    setInterval(run, intervalS * 1000)
+    return
+  }
+  printStatus(options)
+}
+
+function printStatus(options: { config?: string }): void {
   try {
     const { config } = loadConfig(options.config)
     const queues = config.queues

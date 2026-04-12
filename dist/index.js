@@ -37,6 +37,7 @@ program
     .command('status')
     .description('Show queue and task status')
     .option('-c, --config <path>', 'path to config file')
+    .option('-w, --watch [seconds]', 'auto-refresh every N seconds (default: 2)', (v) => parseInt(v, 10) || 2)
     .action((options) => {
     statusCommand(options);
 });
@@ -71,6 +72,8 @@ program
     .command('daemon')
     .description('Start background scheduler daemon')
     .option('-c, --config <path>', 'path to config file (used for daemon settings)')
+    .option('-s, --status', 'show daemon status and scheduled jobs')
+    .option('--stop', 'stop the running daemon')
     .action((options) => {
     void daemonCommand(options);
 });

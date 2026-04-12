@@ -25,9 +25,66 @@ const DEFAULT_POLL_INTERVAL_S = 60
 
 export interface DaemonOptions {
   config?: string
+  status?: boolean
+  stop?: boolean
 }
 
+
 export async function daemonCommand(options: DaemonOptions): Promise<void> {
+  if (options.status) {
+    const { loadRegistry } = await import('../core/scheduler.js')
+    const pidPath = resolve(getSchedulerDir(), 'daemon.pid')
+    const pid = existsSync(pidPath) ? readFileSync(pidPath, 'utf-8').trim() : null
+
+    if (pid && isProcessRunning(pid)) {
+      console.log(chalk.green(`● Daemon running`) + chalk.dim(` (PID ${pid})`))
+    } else {
+      console.log(chalk.dim('○ Daemon not running'))
+    }
+
+    const registry = loadRegistry()
+    const jobs = registry.jobs
+    if (jobs.length === 0) {
+      console.log(chalk.dim('  No scheduled jobs'))
+    } else {
+      console.log()
+      console.log(chalk.bold('Scheduled jobs:'))
+      for (const job of jobs) {
+        const label = job.queue_name ?? `queue[${job.queue_index}]`
+        const when = new Date(job.scheduled_at).toLocaleString()
+        const statusColor =
+          job.status === 'running' ? chalk.yellow :
+          job.status === 'failed' ? chalk.red : chalk.dim
+        console.log(
+          `  ${chalk.dim(job.id)}  ${chalk.cyan(label)}  ${chalk.dim(when)}  ${statusColor(job.status)}`
+        )
+        console.log(chalk.dim(`    ${job.repo}`))
+      }
+    }
+    return
+  }
+
+  if (options.stop) {
+    const pidPath = resolve(getSchedulerDir(), 'daemon.pid')
+    if (!existsSync(pidPath)) {
+      console.log(chalk.dim('Daemon is not running'))
+      return
+    }
+    const pid = readFileSync(pidPath, 'utf-8').trim()
+    if (!isProcessRunning(pid)) {
+      unlinkSync(pidPath)
+      console.log(chalk.dim('Daemon was not running (stale PID file removed)'))
+      return
+    }
+    try {
+      process.kill(parseInt(pid, 10), 'SIGTERM')
+      console.log(chalk.green('✓') + ` Sent SIGTERM to daemon (PID ${pid})`)
+    } catch (err) {
+      console.error(chalk.red(`Failed to stop daemon: ${(err as Error).message}`))
+      process.exit(1)
+    }
+    return
+  }
   // ── Check for existing daemon ─────────────────────────────────────────────
   if (existsSync(PID_FILE)) {
     const existingPid = readFileSync(PID_FILE, 'utf-8').trim()

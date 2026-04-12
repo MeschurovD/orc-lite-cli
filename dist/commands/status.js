@@ -23,6 +23,19 @@ const QUEUE_STATUS_COLORS = {
     failed: chalk.red,
 };
 export function statusCommand(options) {
+    if (options.watch) {
+        const intervalS = typeof options.watch === 'number' ? options.watch : 2;
+        const run = () => {
+            process.stdout.write('\x1Bc'); // clear screen
+            printStatus(options);
+        };
+        run();
+        setInterval(run, intervalS * 1000);
+        return;
+    }
+    printStatus(options);
+}
+function printStatus(options) {
     try {
         const { config } = loadConfig(options.config);
         const queues = config.queues;
