@@ -38,6 +38,74 @@ npm uninstall -g orc-lite-cli
 
 Requires: **Node.js ≥ 18**, **opencode** in PATH, **git**.
 
+### Troubleshooting: `orc-lite: command not found` (macOS/Linux)
+
+If installation succeeds but `orc-lite` is not found, usually your npm global bin directory is not in shell `PATH`.
+
+Check where npm installs global binaries:
+
+```bash
+npm config get prefix
+npm prefix -g
+```
+
+Then make sure `<prefix>/bin` is in your `PATH` (for `zsh`, add to `~/.zshrc`):
+
+```bash
+export PATH="$(npm config get prefix)/bin:$PATH"
+source ~/.zshrc
+```
+
+> If you use **nvm**: `source ~/.zshrc` can switch Node versions and overwrite `PATH`.
+> Re-run `npm config get prefix` **after** sourcing and verify it matches the directory in `PATH`.
+
+Most common case: you install under Node 22, then `source ~/.zshrc` switches back to Node 18.
+In that case `orc-lite` was installed into Node 22 prefix, but your shell uses Node 18 prefix.
+
+Fix by using one Node version consistently:
+
+```bash
+# option A: make Node 22 default for new shells
+nvm alias default 22
+
+# option B: keep Node 18 default, but reinstall orc-lite under Node 18
+nvm use 18
+npm uninstall -g orc-lite-cli
+npm install -g github:MeschurovD/orc-lite-cli
+```
+
+If reinstall fails with `EEXIST .../bin/orc-lite`, remove stale link and retry:
+
+```bash
+rm -f "$(npm config get prefix)/bin/orc-lite"
+npm install -g github:MeschurovD/orc-lite-cli
+```
+
+Useful diagnostics:
+
+```bash
+node -v
+nvm current
+npm config get prefix
+echo "$PATH" | tr ':' '\n' | grep "$(npm config get prefix)/bin"
+```
+
+Quick checks:
+
+```bash
+npm ls -g --depth=0 | grep orc-lite-cli
+which orc-lite
+```
+
+If `which orc-lite` is empty, check executable permissions and reinstall:
+
+```bash
+ls -l "$(npm config get prefix)/lib/node_modules/orc-lite-cli/dist/index.js"
+chmod +x "$(npm config get prefix)/lib/node_modules/orc-lite-cli/dist/index.js"
+npm uninstall -g orc-lite-cli
+npm install -g github:MeschurovD/orc-lite-cli
+```
+
 ---
 
 ## Quick start
