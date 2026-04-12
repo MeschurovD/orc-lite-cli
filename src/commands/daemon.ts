@@ -122,10 +122,23 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
   log(`Scheduler: ${resolve(getSchedulerDir(), 'scheduler.json')}`)
   log(`Poll interval: ${pollIntervalS}s`)
 
+  // ── Idle shutdown ─────────────────────────────────────────────────────────
+  let activeJobCount = 0
+
+  const checkIdle = (): void => {
+    if (activeJobCount > 0) return
+    const remaining = loadRegistry().jobs.filter((j) => j.status === 'scheduled')
+    if (remaining.length === 0) {
+      log('No jobs remaining — daemon shutting down')
+      shutdown('idle')
+    }
+  }
+
   // ── Job runner ────────────────────────────────────────────────────────────
   const runJob = async (job: SchedulerJob): Promise<void> => {
     log(`Running job ${job.id}: queue "${job.queue_name ?? job.queue_index}" in ${job.repo}`)
 
+    activeJobCount++
     updateJobStatus(job.id, 'running')
 
     try {
@@ -145,6 +158,9 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
     } catch (err) {
       updateJobStatus(job.id, 'failed')
       log(`Job ${job.id} ERROR: ${(err as Error).message}`)
+    } finally {
+      activeJobCount--
+      checkIdle()
     }
   }
 
@@ -157,6 +173,7 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
 
     if (jobs.length === 0) {
       log('No scheduled jobs found')
+      checkIdle()
     } else {
       log(`Loaded ${jobs.length} scheduled job(s)`)
       for (const job of jobs) {
