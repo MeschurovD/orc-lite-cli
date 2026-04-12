@@ -74,6 +74,13 @@ npm uninstall -g orc-lite-cli
 npm install -g github:MeschurovD/orc-lite-cli
 ```
 
+If reinstall fails with `EEXIST .../bin/orc-lite`, remove stale link and retry:
+
+```bash
+rm -f "$(npm config get prefix)/bin/orc-lite"
+npm install -g github:MeschurovD/orc-lite-cli
+```
+
 Useful diagnostics:
 
 ```bash
