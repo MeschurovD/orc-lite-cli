@@ -110,10 +110,14 @@ export class OpenCodeAdapter {
     const startTime = Date.now()
 
     return new Promise((resolve) => {
+      const env = this.options.insecure_tls
+        ? { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
+        : process.env
+
       const child = spawn('opencode', ['run', '--format', 'json', prompt], {
         cwd: workingDir,
         stdio: ['inherit', 'pipe', 'pipe'],
-        env: process.env,
+        env,
       })
 
       const usage: UsageAccum = { inputTokens: 0, outputTokens: 0, costUsd: 0 }

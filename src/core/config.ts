@@ -96,6 +96,7 @@ const baseSchema = z.object({
   commit_template: z.string().optional(),
   adapter_options: z.object({
     timeout: z.number().positive().optional(),
+    insecure_tls: z.boolean().optional(),
   }).default({}),
   push: z.enum(['each', 'end', 'none']).default('none'),
   git_strategy: z.enum(['branch', 'commit', 'none']).default('branch'),

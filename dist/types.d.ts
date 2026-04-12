@@ -79,6 +79,7 @@ export type PushMode = 'each' | 'end' | 'none';
 export type GitStrategy = 'branch' | 'commit' | 'none';
 export interface OpenCodeAdapterOptions {
     timeout?: number;
+    insecure_tls?: boolean;
 }
 export interface OrcLiteConfig {
     project_name?: string;

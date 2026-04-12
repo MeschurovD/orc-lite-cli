@@ -121,6 +121,7 @@ export type GitStrategy = 'branch' | 'commit' | 'none'
 
 export interface OpenCodeAdapterOptions {
   timeout?: number
+  insecure_tls?: boolean
 }
 
 export interface OrcLiteConfig {
