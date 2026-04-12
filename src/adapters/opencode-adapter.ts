@@ -24,15 +24,30 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
 
   const type = event['type'] as string | undefined
 
+  const part = event['part'] as Record<string, unknown> | undefined
+
   switch (type) {
-    case 'text-delta': {
-      const text = (event['text'] ?? event['textDelta']) as string | undefined
+    // opencode native events
+    case 'text': {
+      const text = (part?.['text'] ?? event['text']) as string | undefined
       if (text) teeStream.write(text)
       break
     }
 
-    case 'reasoning-delta': {
-      // skip thinking blocks in terminal
+    case 'tool_use': {
+      const name = (part?.['tool'] ?? part?.['name'] ?? event['toolName']) as string | undefined
+      if (name) teeStream.write(`\n  [tool: ${name}]\n`)
+      break
+    }
+
+    case 'step_start':
+    case 'step_finish':
+      break
+
+    // legacy / SDK events
+    case 'text-delta': {
+      const text = (event['text'] ?? event['textDelta']) as string | undefined
+      if (text) teeStream.write(text)
       break
     }
 
@@ -42,11 +57,8 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
       break
     }
 
-    case 'tool-result': {
-      // skip verbose tool results in terminal
-      break
-    }
-
+    case 'reasoning-delta':
+    case 'tool-result':
     case 'step-start':
     case 'step-finish':
     case 'tool-input-start':
@@ -76,7 +88,6 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
       break
 
     default: {
-      // Unknown event — check if it has a cost/usage field we should capture
       const u = event['usage'] as Record<string, unknown> | undefined
       if (u) {
         usage.inputTokens += (u['input_tokens'] as number) ?? 0

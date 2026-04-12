@@ -12,15 +12,29 @@ function processJsonLine(line, teeStream, usage) {
         return;
     }
     const type = event['type'];
+    const part = event['part'];
     switch (type) {
-        case 'text-delta': {
-            const text = (event['text'] ?? event['textDelta']);
+        // opencode native events
+        case 'text': {
+            const text = (part?.['text'] ?? event['text']);
             if (text)
                 teeStream.write(text);
             break;
         }
-        case 'reasoning-delta': {
-            // skip thinking blocks in terminal
+        case 'tool_use': {
+            const name = (part?.['tool'] ?? part?.['name'] ?? event['toolName']);
+            if (name)
+                teeStream.write(`\n  [tool: ${name}]\n`);
+            break;
+        }
+        case 'step_start':
+        case 'step_finish':
+            break;
+        // legacy / SDK events
+        case 'text-delta': {
+            const text = (event['text'] ?? event['textDelta']);
+            if (text)
+                teeStream.write(text);
             break;
         }
         case 'tool-call': {
@@ -29,10 +43,8 @@ function processJsonLine(line, teeStream, usage) {
                 teeStream.write(`\n  [tool: ${name}]\n`);
             break;
         }
-        case 'tool-result': {
-            // skip verbose tool results in terminal
-            break;
-        }
+        case 'reasoning-delta':
+        case 'tool-result':
         case 'step-start':
         case 'step-finish':
         case 'tool-input-start':
@@ -61,7 +73,6 @@ function processJsonLine(line, teeStream, usage) {
         case 'message-start':
             break;
         default: {
-            // Unknown event — check if it has a cost/usage field we should capture
             const u = event['usage'];
             if (u) {
                 usage.inputTokens += u['input_tokens'] ?? 0;
