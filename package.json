@@ -12,6 +12,7 @@
   },
   "scripts": {
     "prepare": "([ -f dist/index.js ] || npx --yes -p typescript tsc) && chmod +x dist/index.js",
+    "postinstall": "node scripts/ensure-global-bin.mjs",
     "build": "tsc && chmod +x dist/index.js",
     "build:watch": "tsc --watch",
     "dev": "tsx src/index.ts",
