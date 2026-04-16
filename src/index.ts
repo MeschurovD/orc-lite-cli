@@ -53,12 +53,12 @@ program
 // ─── reset ───────────────────────────────────────────────────────────────────
 
 program
-  .command('reset <task-file>')
-  .description('Reset a task back to pending')
+  .command('reset [task-file]')
+  .description('Reset a task to pending (interactive if no file given)')
   .option('-c, --config <path>', 'path to config file')
-  .option('-q, --queue <number>', 'queue number to search in')
+  .option('-q, --queue <name|number>', 'queue to search in')
   .action((taskFile, options) => {
-    resetCommand(taskFile, options)
+    void resetCommand(taskFile, options)
   })
 
 // ─── logs ────────────────────────────────────────────────────────────────────
