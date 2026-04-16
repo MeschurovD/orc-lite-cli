@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import chalk from 'chalk';
+import { select, checkbox, confirm, input } from '@inquirer/prompts';
 import { loadConfig, saveConfig } from '../core/config.js';
-export function addCommand(file, options) {
+export async function addCommand(file, options) {
     const cwd = process.cwd();
     let config;
     let configPath;
@@ -15,53 +16,189 @@ export function addCommand(file, options) {
         console.error(chalk.red(`Error: ${err.message}`));
         process.exit(1);
     }
-    // Determine queue index
-    let qi;
-    if (options.queue !== undefined) {
-        const n = parseInt(options.queue, 10);
-        if (isNaN(n) || n < 1) {
-            console.error(chalk.red(`Invalid queue number: ${options.queue}`));
-            process.exit(1);
-        }
-        qi = n - 1;
-        if (qi >= config.queues.length) {
-            console.error(chalk.red(`Queue #${n} not found (${config.queues.length} queues total)`));
-            process.exit(1);
-        }
+    if (file === undefined) {
+        await interactiveAdd(config, configPath, cwd, options);
     }
     else {
-        qi = config.queues.findIndex((q) => q.status !== 'done');
-        if (qi === -1) {
-            console.error(chalk.yellow('All queues are done. Use -q to specify a queue.'));
-            process.exit(1);
-        }
+        await quickAdd(file, config, configPath, cwd, options);
+    }
+}
+// ─── Quick add (file argument provided) ───────────────────────────────────────
+async function quickAdd(file, config, configPath, cwd, options) {
+    const qi = resolveQueueIndex(config, options.queue);
+    if (qi === -1) {
+        console.error(chalk.yellow('All queues are done. Use -q to specify a queue.'));
+        process.exit(1);
     }
     const queue = config.queues[qi];
     const label = queue.name ?? `#${qi + 1}`;
-    // Check if task already in queue
+    const tasksDir = queue.tasks_dir ?? config.tasks_dir;
     const alreadyExists = queue.tasks.some((t) => t.file === file);
     if (alreadyExists) {
         console.error(chalk.yellow(`Task "${file}" is already in queue ${label}`));
         process.exit(1);
     }
-    // Create template file if it doesn't exist
-    const taskPath = resolve(cwd, config.tasks_dir, file);
-    if (!existsSync(taskPath)) {
-        mkdirSync(dirname(taskPath), { recursive: true });
-        writeFileSync(taskPath, buildTaskTemplate(file));
-        console.log(chalk.dim(`  Created task file: ${taskPath}`));
-    }
-    const task = {
-        file,
-        status: 'pending',
-    };
+    createTaskFile(cwd, tasksDir, file);
+    const task = { file, status: 'pending' };
     config.queues[qi].tasks.push(task);
     saveConfig(configPath, config);
     console.log(chalk.green('✓') +
         ` Added "${chalk.bold(file)}" to queue ${chalk.bold(label)}` +
         chalk.dim(` (task #${queue.tasks.length})`));
 }
-// ─── Template ─────────────────────────────────────────────────────────────────
+// ─── Interactive add (no file argument) ───────────────────────────────────────
+async function interactiveAdd(config, configPath, cwd, _options) {
+    console.log();
+    console.log(chalk.bold('orc-lite') + chalk.dim(' — add tasks'));
+    console.log(chalk.dim('─'.repeat(30)));
+    console.log();
+    // ── 1. Select queue ──────────────────────────────────────────────────────────
+    const queueChoices = config.queues.map((q, i) => {
+        const name = q.name ?? `Queue #${i + 1}`;
+        const dir = q.tasks_dir ?? config.tasks_dir;
+        const total = q.tasks.length;
+        const done = q.tasks.filter((t) => t.status === 'done').length;
+        const taskLabel = total === 1 ? '1 task' : `${total} tasks`;
+        const doneLabel = done > 0 ? chalk.dim(` (${done} done)`) : '';
+        const statusLabel = q.status === 'done' ? chalk.dim('done') : chalk.cyan('pending');
+        return {
+            name: `${name}   ${chalk.dim(dir)}   ${chalk.dim(taskLabel)}   ${statusLabel}${doneLabel}`,
+            value: i,
+            short: name,
+        };
+    });
+    const qi = await select({
+        message: 'Select queue:',
+        choices: queueChoices,
+    });
+    const queue = config.queues[qi];
+    const tasksDir = queue.tasks_dir ?? config.tasks_dir;
+    const resolvedDir = resolve(cwd, tasksDir);
+    // ── 2. Collect available files ───────────────────────────────────────────────
+    const existingFiles = new Set(queue.tasks.map((t) => t.file));
+    let availableFiles = [];
+    if (existsSync(resolvedDir)) {
+        availableFiles = readdirSync(resolvedDir)
+            .filter((f) => f.endsWith('.md'))
+            .sort();
+    }
+    const fileChoices = availableFiles.map((f) => ({
+        name: f,
+        value: f,
+        disabled: existingFiles.has(f) ? chalk.dim('(already added)') : false,
+    }));
+    // Add a separator and "new file" option
+    fileChoices.push({
+        name: chalk.dim('+ Enter new filename'),
+        value: '__new__',
+        disabled: false,
+    });
+    let selectedFiles = [];
+    if (fileChoices.length <= 1) {
+        // No existing md files — go straight to new filename
+        console.log(chalk.dim(`  No .md files found in ${tasksDir}`));
+    }
+    else {
+        selectedFiles = await checkbox({
+            message: 'Select files to add:',
+            choices: fileChoices,
+        });
+    }
+    // Handle "new file" option
+    if (selectedFiles.includes('__new__') || selectedFiles.length === 0) {
+        selectedFiles = selectedFiles.filter((f) => f !== '__new__');
+        const newFile = (await input({
+            message: 'New filename:',
+            validate: (v) => v.endsWith('.md') ? true : 'Must end with .md',
+        })).trim();
+        if (newFile)
+            selectedFiles.push(newFile);
+    }
+    if (selectedFiles.length === 0) {
+        console.log(chalk.yellow('No files selected.'));
+        return;
+    }
+    // ── 3. Optional task options ─────────────────────────────────────────────────
+    const configureOpts = await confirm({
+        message: 'Configure options for selected tasks?',
+        default: false,
+    });
+    let taskStages;
+    let contextFiles;
+    let retries;
+    if (configureOpts) {
+        const stageChoices = await checkbox({
+            message: 'Stages:',
+            choices: [
+                { name: 'implement', value: 'implement', checked: true },
+                { name: 'verify', value: 'verify' },
+                { name: 'test', value: 'test' },
+            ],
+        });
+        taskStages = stageChoices.length > 0 ? stageChoices : undefined;
+        contextFiles = (await input({
+            message: 'Context files (comma-separated, leave empty to skip):',
+        })).trim();
+        retries = (await input({
+            message: 'Max retries (leave empty to skip):',
+        })).trim();
+    }
+    // ── 4. Add tasks ─────────────────────────────────────────────────────────────
+    const label = queue.name ?? `#${qi + 1}`;
+    let added = 0;
+    for (const f of selectedFiles) {
+        if (existingFiles.has(f)) {
+            console.log(chalk.yellow(`  Skipped "${f}" (already in queue)`));
+            continue;
+        }
+        createTaskFile(cwd, tasksDir, f);
+        const task = { file: f, status: 'pending' };
+        if (taskStages && taskStages.length > 0) {
+            task.stages = taskStages;
+        }
+        if (contextFiles) {
+            task.context_files = contextFiles.split(',').map((s) => s.trim()).filter(Boolean);
+        }
+        if (retries) {
+            const n = parseInt(retries, 10);
+            if (!isNaN(n))
+                task.max_retries = n;
+        }
+        config.queues[qi].tasks.push(task);
+        added++;
+    }
+    saveConfig(configPath, config);
+    console.log();
+    console.log(chalk.green('✓') +
+        ` Added ${added} task${added !== 1 ? 's' : ''} to queue ${chalk.bold(label)}`);
+    console.log();
+}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function resolveQueueIndex(config, queueOption) {
+    if (queueOption === undefined) {
+        return config.queues.findIndex((q) => q.status !== 'done');
+    }
+    const n = parseInt(queueOption, 10);
+    if (!isNaN(n) && n >= 1) {
+        const qi = n - 1;
+        return qi < config.queues.length ? qi : -2;
+    }
+    // By name
+    const qi = config.queues.findIndex((q) => q.name?.toLowerCase() === queueOption.toLowerCase());
+    if (qi === -1) {
+        console.error(chalk.red(`Queue "${queueOption}" not found`));
+        process.exit(1);
+    }
+    return qi;
+}
+function createTaskFile(cwd, tasksDir, file) {
+    const taskPath = resolve(cwd, tasksDir, file);
+    if (!existsSync(taskPath)) {
+        mkdirSync(dirname(taskPath), { recursive: true });
+        writeFileSync(taskPath, buildTaskTemplate(file));
+        console.log(chalk.dim(`  Created: ${taskPath}`));
+    }
+}
 function buildTaskTemplate(file) {
     const name = basename(file, '.md').replace(/[-_]/g, ' ');
     return `# ${name}

@@ -1,11 +1,8 @@
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
-import { createInterface } from 'node:readline';
 import chalk from 'chalk';
+import { select, input, confirm } from '@inquirer/prompts';
 import { CONFIG_FILENAME } from '../core/config.js';
-function prompt(rl, question) {
-    return new Promise((resolve) => rl.question(question, resolve));
-}
 export async function initCommand() {
     const configPath = resolve(CONFIG_FILENAME);
     if (existsSync(configPath)) {
@@ -16,74 +13,123 @@ export async function initCommand() {
     console.log(chalk.bold('orc-lite init'));
     console.log(chalk.dim(`Create ${CONFIG_FILENAME} for this project`));
     console.log();
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-        const gitStrategyInput = (await prompt(rl, `Git strategy ${chalk.dim('(branch/commit/none) [branch]')} : `)).trim() || 'branch';
-        const gitStrategy = (['branch', 'commit', 'none'].includes(gitStrategyInput) ? gitStrategyInput : 'branch');
-        let targetBranch = '';
-        if (gitStrategy === 'branch') {
-            targetBranch = (await prompt(rl, `Target branch ${chalk.dim('(main)')} : `)).trim() || 'main';
+    // ── Git strategy ──────────────────────────────────────────────────────────────
+    const gitStrategy = await select({
+        message: 'Git strategy:',
+        choices: [
+            { name: 'branch — create a branch per task', value: 'branch' },
+            { name: 'commit — commit directly to target branch', value: 'commit' },
+            { name: 'none — no git operations', value: 'none' },
+        ],
+    });
+    let targetBranch = '';
+    if (gitStrategy === 'branch') {
+        targetBranch = (await input({
+            message: 'Target branch:',
+            default: 'main',
+        })).trim() || 'main';
+    }
+    // ── Directories ───────────────────────────────────────────────────────────────
+    const tasksDir = (await input({
+        message: 'Global tasks directory:',
+        default: './tasks',
+    })).trim() || './tasks';
+    const logsDir = (await input({
+        message: 'Logs directory:',
+        default: './.orc-lite/logs',
+    })).trim() || './.orc-lite/logs';
+    // ── Optional settings ─────────────────────────────────────────────────────────
+    const verifyCmd = (await input({
+        message: 'Verification command (leave empty to skip):',
+    })).trim();
+    const systemPrompt = (await input({
+        message: 'System prompt (leave empty to skip):',
+    })).trim();
+    // ── Queues ────────────────────────────────────────────────────────────────────
+    const queueMode = await select({
+        message: 'Queue setup:',
+        choices: [
+            { name: '1 queue (simple)', value: 'single' },
+            { name: 'Multiple queues', value: 'multiple' },
+        ],
+    });
+    const queues = [];
+    if (queueMode === 'single') {
+        const queueName = (await input({
+            message: 'Queue name:',
+            default: 'default',
+        })).trim() || 'default';
+        queues.push(buildQueue(queueName, tasksDir, tasksDir));
+    }
+    else {
+        let queueNum = 1;
+        let addMore = true;
+        while (addMore) {
+            console.log();
+            console.log(chalk.dim(`Queue ${queueNum}:`));
+            const queueName = (await input({
+                message: `  Name:`,
+                default: queueNum === 1 ? 'default' : `queue-${queueNum}`,
+            })).trim() || `queue-${queueNum}`;
+            const queueDir = (await input({
+                message: `  Tasks directory ${chalk.dim(`(enter for ${tasksDir})`)}:`,
+            })).trim() || tasksDir;
+            queues.push(buildQueue(queueName, queueDir, tasksDir));
+            queueNum++;
+            addMore = await confirm({ message: 'Add another queue?', default: false });
         }
-        const tasksDir = (await prompt(rl, `Tasks directory ${chalk.dim('(./tasks)')} : `)).trim() || './tasks';
-        const logsDir = (await prompt(rl, `Logs directory ${chalk.dim('(./.orc-lite/logs)')} : `)).trim() || './.orc-lite/logs';
-        const verifyCmd = (await prompt(rl, `Verification command ${chalk.dim('(leave empty to skip)')} : `)).trim();
-        const systemPrompt = (await prompt(rl, `System prompt ${chalk.dim('(leave empty to skip)')} : `)).trim();
-        const queueName = (await prompt(rl, `First queue name ${chalk.dim('(default)')} : `)).trim() || 'default';
-        // Auto-discover task files
-        const tasksDirResolved = resolve(tasksDir);
-        let tasks = [];
-        if (existsSync(tasksDirResolved)) {
-            const files = readdirSync(tasksDirResolved)
-                .filter((f) => f.endsWith('.md'))
-                .sort();
-            tasks = files.map((file) => ({ file, status: 'pending' }));
-            if (tasks.length > 0) {
-                console.log();
-                console.log(chalk.green(`Found ${tasks.length} task file(s) in ${tasksDir}:`));
-                tasks.forEach((t, i) => console.log(chalk.dim(`  ${i + 1}. ${t.file}`)));
-            }
-            else {
-                console.log();
-                console.log(chalk.yellow(`No .md files found in ${tasksDir}. Add task files and update ${CONFIG_FILENAME}.`));
-                tasks = [{ file: 'example-task.md', status: 'pending' }];
-            }
+    }
+    // ── Write config ──────────────────────────────────────────────────────────────
+    const config = {
+        project_name: basename(resolve('.')),
+        target_branch: targetBranch,
+        tasks_dir: tasksDir,
+        logs_dir: logsDir,
+        on_failure: 'stop',
+        adapter_options: { timeout: 600 },
+        push: 'none',
+        git_strategy: gitStrategy,
+        max_retries: 0,
+        queues,
+    };
+    if (verifyCmd)
+        config.verification_cmd = verifyCmd;
+    if (systemPrompt)
+        config.system_prompt = systemPrompt;
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    console.log();
+    console.log(chalk.green(`✓ Created ${CONFIG_FILENAME}`));
+    console.log(chalk.dim(`  ${queues.length} queue${queues.length !== 1 ? 's' : ''} configured`));
+    console.log(chalk.dim(`  Run ${chalk.white('orc-lite add')} to add tasks`));
+    console.log();
+}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function buildQueue(name, dir, globalTasksDir) {
+    const resolvedDir = resolve(dir);
+    let tasks = [];
+    if (existsSync(resolvedDir)) {
+        const files = readdirSync(resolvedDir).filter((f) => f.endsWith('.md')).sort();
+        tasks = files.map((file) => ({ file, status: 'pending' }));
+        if (tasks.length > 0) {
+            console.log(chalk.green(`  Found ${tasks.length} task file(s) in ${dir}`));
         }
         else {
-            console.log();
-            console.log(chalk.yellow(`Directory "${tasksDir}" not found. Creating it...`));
-            mkdirSync(tasksDirResolved, { recursive: true });
-            tasks = [{ file: 'example-task.md', status: 'pending' }];
+            console.log(chalk.yellow(`  No .md files found in ${dir}`));
         }
-        const queue = {
-            name: queueName,
-            schedule: null,
-            status: 'pending',
-            tasks,
-        };
-        const config = {
-            project_name: basename(resolve('.')),
-            target_branch: targetBranch,
-            tasks_dir: tasksDir,
-            logs_dir: logsDir,
-            on_failure: 'stop',
-            adapter_options: { timeout: 600 },
-            push: 'none',
-            git_strategy: gitStrategy,
-            max_retries: 0,
-            queues: [queue],
-        };
-        if (verifyCmd)
-            config.verification_cmd = verifyCmd;
-        if (systemPrompt)
-            config.system_prompt = systemPrompt;
-        writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-        console.log();
-        console.log(chalk.green(`✓ Created ${CONFIG_FILENAME}`));
-        console.log(chalk.dim(`  Run ${chalk.white('orc-lite run')} to start the queue`));
-        console.log();
     }
-    finally {
-        rl.close();
+    else {
+        console.log(chalk.yellow(`  Directory "${dir}" not found — creating...`));
+        mkdirSync(resolvedDir, { recursive: true });
     }
+    const queue = {
+        name,
+        schedule: null,
+        status: 'pending',
+        tasks,
+    };
+    // Only set tasks_dir if it differs from global
+    if (dir !== globalTasksDir)
+        queue.tasks_dir = dir;
+    return queue;
 }
 //# sourceMappingURL=init.js.map

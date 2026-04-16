@@ -10,6 +10,7 @@ import { daemonCommand } from './commands/daemon.js'
 import { registerCommand } from './commands/register.js'
 import { scheduleCommand } from './commands/schedule.js'
 import { addCommand } from './commands/add.js'
+import { queueListCommand, queueAddCommand } from './commands/queue.js'
 import { docsCommand } from './commands/docs.js'
 
 program
@@ -118,12 +119,36 @@ program
 // ─── add ─────────────────────────────────────────────────────────────────────
 
 program
-  .command('add <file>')
-  .description('Add a task file to a queue')
+  .command('add [file]')
+  .description('Add a task to a queue (interactive if no file given)')
   .option('-c, --config <path>', 'path to config file')
-  .option('-q, --queue <number>', 'queue number (default: first pending queue)')
+  .option('-q, --queue <name|number>', 'queue name or number (default: first pending)')
   .action((file, options) => {
     void addCommand(file, options)
+  })
+
+// ─── queue ────────────────────────────────────────────────────────────────────
+
+const queueCmd = program
+  .command('queue')
+  .description('Manage queues')
+
+queueCmd
+  .command('list')
+  .description('List all queues')
+  .option('-c, --config <path>', 'path to config file')
+  .action((options) => {
+    queueListCommand(options)
+  })
+
+queueCmd
+  .command('add [name]')
+  .description('Add a new queue (interactive if no name given)')
+  .option('-c, --config <path>', 'path to config file')
+  .option('--dir <path>', 'tasks directory for this queue')
+  .option('--schedule <time>', 'schedule (e.g. "2:30")')
+  .action((name, options) => {
+    void queueAddCommand(name, options)
   })
 
 // ─── docs ─────────────────────────────────────────────────────────────────────
