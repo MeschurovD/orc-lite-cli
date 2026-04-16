@@ -111,12 +111,15 @@ npm install -g github:MeschurovD/orc-lite-cli
 ## Quick start
 
 ```bash
-# 1. Initialize config in your project
+# 1. Initialize config in your project (interactive)
 orc-lite init
 
-# 2. Add task files
+# 2. Add tasks — interactive (select queue, pick files, configure options)
+orc-lite add
+
+# …or directly with a filename
 orc-lite add fix-auth-bug.md
-# → creates tasks/fix-auth-bug.md with a template, adds it to config
+# → creates tasks/fix-auth-bug.md from a template, adds it to config
 
 # 3. Edit the task file, then run
 orc-lite run
@@ -140,7 +143,9 @@ orc-lite run --dry-run    # preview without making changes
 ### `orc-lite init`
 
 Interactively create `orc-lite.config.json` in the current directory.
-Auto-discovers `.md` files in the tasks directory.
+Prompts for git strategy, directories, and queues. Supports creating multiple
+queues in one go, each with optional task defaults (stages, retries, verify command).
+Auto-discovers existing `.md` files in each queue's tasks directory.
 
 ### `orc-lite status`
 
@@ -156,23 +161,42 @@ target branch: main
      3. fix-logout.md            ○ pending
 ```
 
-### `orc-lite add <file>`
+### `orc-lite add [file]`
 
-Add a task to a queue. Creates the task file from a template if it doesn't exist.
-
-```bash
-orc-lite add fix-bug.md           # add to first pending queue
-orc-lite add fix-bug.md -q 2      # add to queue #2
-```
-
-### `orc-lite reset <task-file>`
-
-Reset a failed or stuck task back to `pending`.
+Add a task to a queue. Without a filename, runs full interactive mode:
+select queue → checkbox file selection with live filter → optional stages/retries/context config.
 
 ```bash
-orc-lite reset fix-bug.md
-orc-lite reset fix-bug.md -q 2    # if task is in queue #2
+orc-lite add                      # interactive: pick queue, pick files, configure
+orc-lite add fix-bug.md           # quick: add to first pending queue
+orc-lite add fix-bug.md -q auth   # quick: add to queue named "auth"
+orc-lite add fix-bug.md -q 2      # quick: add to queue #2
 ```
+
+Creates the task file from a template if it doesn't exist.
+
+### `orc-lite reset [task-file]`
+
+Reset a failed or stuck task back to `pending`. Without a filename, shows all
+failed/stuck tasks across all queues and lets you pick a recovery action for each.
+
+```bash
+orc-lite reset                    # interactive: pick tasks, choose action
+orc-lite reset fix-bug.md         # quick reset to pending
+orc-lite reset fix-bug.md -q auth # if task is in queue named "auth"
+```
+
+**Recovery actions** (interactive mode):
+
+| Action | What it does |
+|---|---|
+| Reset | retry as-is |
+| Bump timeout | doubles `adapter_options.timeout` in config |
+| Add retries | sets `max_retries` on the task |
+| Change stages | checkbox to pick new stage set |
+| Mark as skipped | sets status to `skipped` |
+
+Also resets the queue status from `failed`/`in_progress` to `pending` automatically.
 
 ### `orc-lite logs [task]`
 
@@ -187,6 +211,30 @@ orc-lite logs fix-bug --tail       # follow log in real-time
 ### `orc-lite validate`
 
 Check config, task files, git repo, and opencode availability before running.
+
+### `orc-lite queue list`
+
+Show all queues with their status, task progress, and configured defaults.
+
+```
+#    Name                Dir                   Tasks    Status
+────────────────────────────────────────────────────────────────────
+1    auth-refactor       tasks/auth            2/4      pending  [stages: implement+verify, retries: 3]
+2    api-cleanup         tasks/api             0/2      pending
+3    nightly-fixes       tasks/                3/3      done     @ 2:30
+```
+
+### `orc-lite queue add [name]`
+
+Add a new queue. Without a name, runs full interactive mode with prompts for
+name, tasks directory, schedule, and optional task defaults (stages, retries,
+backoff, verification command).
+
+```bash
+orc-lite queue add                          # fully interactive
+orc-lite queue add auth --dir tasks/auth    # with flags
+orc-lite queue add nightly --schedule 2:30  # with schedule
+```
 
 ---
 
@@ -284,12 +332,18 @@ The daemon:
     "log_file": ".orc-lite/daemon.log"
   },
 
-  // Queues (each can have an optional schedule)
+  // Queues (each can have an optional schedule and task defaults)
   "queues": [
     {
       "name": "auth-refactor",
       "schedule": null,             // null = manual run only
       "status": "pending",
+      "tasks_dir": "tasks/auth",    // optional: overrides global tasks_dir
+      // Per-queue task defaults (override global, task-level overrides these)
+      "stages": ["implement", "verify"],
+      "max_retries": 2,
+      "retry": { "max_attempts": 2, "delay_seconds": 10, "backoff": "linear" },
+      "verification_cmd": "npm test",
       "tasks": [
         { "file": "fix-auth.md", "status": "pending" },
         { "file": "fix-tokens.md", "status": "pending" }
@@ -412,6 +466,18 @@ implement (retry 1) → verify (score 91, approved)
 Override the default prompt sent on verify-retry with `retry_prompt_template` in `stages.verify`.
 Available variables: `{taskContent}`, `{implementOutput}`, `{gitDiff}`, `{verifyIssues}`, `{verifyReason}`, `{verifyScore}`, `{attempt}`.
 
+### Settings fallback chain
+
+For `stages`, `max_retries`, `retry`, and `verification_cmd`, settings are
+resolved in this order — the first defined value wins:
+
+```
+task-level  →  queue-level  →  global config
+```
+
+This lets you set sensible defaults per queue and override for specific tasks
+that need different behaviour.
+
 ### Per-task options
 
 ```jsonc
@@ -422,7 +488,8 @@ Available variables: `{taskContent}`, `{implementOutput}`, `{gitDiff}`, `{verify
   "context_files": ["src/auth.ts"], // extra context for opencode
   "verification_cmd": "npm test",   // run after implementation
   "stages": ["implement", "verify", "test"],
-  "retry": { "max_attempts": 2, "delay_seconds": 0 }, // override global retry
+  "max_retries": 3,                 // overrides queue and global
+  "retry": { "max_attempts": 2, "delay_seconds": 0 },
   "hooks": {
     "pre_task": "git fetch origin",
     "post_task": "npm run lint"
