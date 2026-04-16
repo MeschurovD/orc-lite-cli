@@ -42,6 +42,11 @@ export interface QueueDefinition {
   schedule?: string | null
   status: QueueStatus
   tasks_dir?: string
+  // Per-queue defaults (fallback between task-level and global)
+  stages?: StageName[]
+  max_retries?: number
+  retry?: RetryConfig
+  verification_cmd?: string
   tasks: TaskDefinition[]
 }
 

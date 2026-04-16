@@ -4,6 +4,7 @@ import chalk from 'chalk'
 import { select, input, confirm } from '@inquirer/prompts'
 import type { OrcLiteConfig, TaskDefinition, QueueDefinition } from '../types.js'
 import { CONFIG_FILENAME } from '../core/config.js'
+import { promptQueueDefaults } from './queue.js'
 
 export async function initCommand(): Promise<void> {
   const configPath = resolve(CONFIG_FILENAME)
@@ -77,7 +78,8 @@ export async function initCommand(): Promise<void> {
       default: 'default',
     })).trim() || 'default'
 
-    queues.push(buildQueue(queueName, tasksDir, tasksDir))
+    const defaults = await promptQueueDefaults()
+    queues.push(buildQueue(queueName, tasksDir, tasksDir, defaults))
   } else {
     let queueNum = 1
     let addMore = true
@@ -95,7 +97,8 @@ export async function initCommand(): Promise<void> {
         message: `  Tasks directory ${chalk.dim(`(enter for ${tasksDir})`)}:`,
       })).trim() || tasksDir
 
-      queues.push(buildQueue(queueName, queueDir, tasksDir))
+      const defaults = await promptQueueDefaults()
+      queues.push(buildQueue(queueName, queueDir, tasksDir, defaults))
       queueNum++
 
       addMore = await confirm({ message: 'Add another queue?', default: false })
@@ -131,7 +134,12 @@ export async function initCommand(): Promise<void> {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildQueue(name: string, dir: string, globalTasksDir: string): QueueDefinition {
+function buildQueue(
+  name: string,
+  dir: string,
+  globalTasksDir: string,
+  defaults: import('./queue.js').QueueDefaults = {},
+): QueueDefinition {
   const resolvedDir = resolve(dir)
   let tasks: TaskDefinition[] = []
 
@@ -156,8 +164,11 @@ function buildQueue(name: string, dir: string, globalTasksDir: string): QueueDef
     tasks,
   }
 
-  // Only set tasks_dir if it differs from global
   if (dir !== globalTasksDir) queue.tasks_dir = dir
+  if (defaults.stages) queue.stages = defaults.stages
+  if (defaults.max_retries !== undefined) queue.max_retries = defaults.max_retries
+  if (defaults.retry) queue.retry = defaults.retry
+  if (defaults.verification_cmd) queue.verification_cmd = defaults.verification_cmd
 
   return queue
 }

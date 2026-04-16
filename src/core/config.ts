@@ -62,7 +62,11 @@ const queueSchema = z.object({
   schedule: z.string().nullable().optional(),
   status: z.enum(['pending', 'in_progress', 'done', 'failed']).default('pending'),
   tasks_dir: z.string().optional(),
-  tasks: z.array(taskSchema).min(1, 'queue tasks must not be empty'),
+  stages: z.array(z.enum(['implement', 'verify', 'test'])).optional(),
+  max_retries: z.number().int().min(0).optional(),
+  retry: retryConfigSchema,
+  verification_cmd: z.string().optional(),
+  tasks: z.array(taskSchema).min(0),
 })
 
 const notificationsSchema = z.object({

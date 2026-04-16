@@ -38,13 +38,14 @@ export async function runTask(
     retry_count: undefined,
   })
 
-  const stages = task.stages ?? ['implement']
+  const queue = config.queues[queueIndex]
+  const effectiveTasksDir = queue.tasks_dir ?? config.tasks_dir
+  const stages = task.stages ?? queue.stages ?? ['implement']
 
   const git = new GitService(workingDir)
   const branchName = getTaskBranchName(task)
-  const retryConfig = task.retry ?? config.retry
-  const maxRetries = retryConfig?.max_attempts ?? task.max_retries ?? config.max_retries
-  const effectiveTasksDir = config.queues[queueIndex].tasks_dir ?? config.tasks_dir
+  const retryConfig = task.retry ?? queue.retry ?? config.retry
+  const maxRetries = retryConfig?.max_attempts ?? task.max_retries ?? queue.max_retries ?? config.max_retries
   let lastError = ''
 
   let taskContent = ''
@@ -275,7 +276,7 @@ export async function runTask(
       }
 
       // ── Verification command ────────────────────────────────────────────────
-      const verifyCmd = task.verification_cmd ?? config.verification_cmd
+      const verifyCmd = task.verification_cmd ?? queue.verification_cmd ?? config.verification_cmd
       if (verifyCmd) {
         log.step(`verification: ${verifyCmd}`)
         const verifyResult = await runHook(verifyCmd, workingDir, log)
