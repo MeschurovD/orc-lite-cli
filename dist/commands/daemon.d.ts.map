@@ -1,1 +1,0 @@
-{"version":3,"file":"daemon.d.ts","sourceRoot":"","sources":["../../src/commands/daemon.ts"],"names":[],"mappings":"AAyBA,MAAM,WAAW,aAAa;IAC5B,MAAM,CAAC,EAAE,MAAM,CAAA;CAChB;AAED,wBAAsB,aAAa,CAAC,OAAO,EAAE,aAAa,GAAG,OAAO,CAAC,IAAI,CAAC,CAsIzE"}

@@ -254,8 +254,29 @@ The daemon:
   "target_branch": "main",
   "tasks_dir": "tasks",
   "logs_dir": ".orc-lite/logs",
-  "push": "none",          // "each" | "end" | "none"
-  "max_retries": 1,
+  "push": "none",            // "each" | "end" | "none"
+  "git_strategy": "branch",  // "branch" | "commit" | "none"
+  "max_retries": 0,          // legacy; use retry.max_attempts instead
+
+  // Retry on error (outer loop — restarts task from scratch)
+  "retry": {
+    "max_attempts": 3,
+    "delay_seconds": 10,
+    "backoff": "linear",
+    "backoff_base": 30
+  },
+
+  // Stage-level settings
+  "stages": {
+    "verify": {
+      "threshold": 80,
+      "on_fail": "retry",    // "stop" | "continue" | "retry"
+      "max_retries": 2       // inner verify-retry attempts
+    },
+    "test": {
+      "on_fail": "continue"
+    }
+  },
 
   // Optional daemon settings
   "daemon": {
@@ -286,6 +307,48 @@ The daemon:
 }
 ```
 
+### Task folder organisation
+
+Tasks can be organised into subfolders in two ways:
+
+**Relative path in `file`** — no config changes needed, resolves against the global `tasks_dir`:
+
+```jsonc
+{ "file": "auth/fix-login.md", "status": "pending" }
+// → reads from <tasks_dir>/auth/fix-login.md
+// → branch name: task/auth-fix-login
+```
+
+**Per-queue `tasks_dir`** — cleaner file names when a whole queue lives in one folder:
+
+```jsonc
+{
+  "name": "auth-refactor",
+  "tasks_dir": "tasks/auth",       // overrides global tasks_dir for this queue
+  "tasks": [
+    { "file": "fix-login.md", "status": "pending" },
+    { "file": "fix-tokens.md", "status": "pending" }
+  ]
+},
+{
+  "name": "api-cleanup",
+  "tasks_dir": "tasks/api",
+  "tasks": [
+    { "file": "fix-endpoint.md", "status": "pending" }
+  ]
+},
+{
+  "name": "mixed",
+  // no tasks_dir → uses global tasks_dir
+  "tasks": [
+    { "file": "auth/special.md", "status": "pending" },
+    { "file": "api/hotfix.md", "status": "pending" }
+  ]
+}
+```
+
+Queues without `tasks_dir` fall back to the global value. Both approaches can be mixed within the same config.
+
 ### Backward compatibility
 
 The simple `tasks` format from orc-cli is supported and automatically wrapped in a `default` queue:
@@ -300,6 +363,55 @@ The simple `tasks` format from orc-cli is supported and automatically wrapped in
 }
 ```
 
+### Retry configuration
+
+orc-lite has two independent retry layers.
+
+**Outer retry** — restarts the task from scratch on any error (opencode failure, hook failure, etc.):
+
+```jsonc
+{
+  "retry": {
+    "max_attempts": 3,       // total retry attempts (takes priority over max_retries)
+    "delay_seconds": 10,     // base delay before each retry
+    "backoff": "linear",     // "none" | "linear" | "exponential"
+    "backoff_base": 30       // seconds added per attempt
+  }
+}
+```
+
+Delay formula: `none` → always `delay_seconds`; `linear` → `delay + base×N`; `exponential` → `delay + base×2^(N-1)`.
+
+`retry.max_attempts` takes priority over the legacy `max_retries` field (kept for backward compatibility).
+
+**Inner verify-retry loop** — re-runs `implement` with feedback from a failed verify, without resetting the git branch:
+
+```jsonc
+{
+  "stages": {
+    "verify": {
+      "threshold": 80,
+      "on_fail": "retry",   // "stop" | "continue" | "retry"
+      "max_retries": 2      // how many times to retry implement after failed verify
+    }
+  }
+}
+```
+
+When verify returns `approved: false`, the issues list and reason are fed back into a new implement run:
+
+```
+implement → verify (score 55, issues: ["missing error handling", "no migration"])
+  → retry implement with feedback
+implement (retry 1) → verify (score 91, approved)
+  → continues to test stage
+```
+
+#### Custom retry prompt template
+
+Override the default prompt sent on verify-retry with `retry_prompt_template` in `stages.verify`.
+Available variables: `{taskContent}`, `{implementOutput}`, `{gitDiff}`, `{verifyIssues}`, `{verifyReason}`, `{verifyScore}`, `{attempt}`.
+
 ### Per-task options
 
 ```jsonc
@@ -309,8 +421,8 @@ The simple `tasks` format from orc-cli is supported and automatically wrapped in
   "branch": "feat/fix-auth",        // custom branch name
   "context_files": ["src/auth.ts"], // extra context for opencode
   "verification_cmd": "npm test",   // run after implementation
-  "max_retries": 2,                 // override global max_retries
   "stages": ["implement", "verify", "test"],
+  "retry": { "max_attempts": 2, "delay_seconds": 0 }, // override global retry
   "hooks": {
     "pre_task": "git fetch origin",
     "post_task": "npm run lint"

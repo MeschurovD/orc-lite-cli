@@ -93,6 +93,28 @@ function fillTemplate(
     .replace(/\{gitDiff\}/g, vars.gitDiff)
 }
 
+function fillRetryTemplate(
+  template: string,
+  vars: {
+    taskContent: string
+    implementOutput: string
+    gitDiff: string
+    verifyIssues: string
+    verifyReason: string
+    verifyScore: string
+    attempt: string
+  },
+): string {
+  return template
+    .replace(/\{taskContent\}/g, vars.taskContent)
+    .replace(/\{implementOutput\}/g, vars.implementOutput)
+    .replace(/\{gitDiff\}/g, vars.gitDiff)
+    .replace(/\{verifyIssues\}/g, vars.verifyIssues)
+    .replace(/\{verifyReason\}/g, vars.verifyReason)
+    .replace(/\{verifyScore\}/g, vars.verifyScore)
+    .replace(/\{attempt\}/g, vars.attempt)
+}
+
 export function buildVerifyPrompt(
   taskContent: string,
   implementOutput: string,
@@ -100,6 +122,65 @@ export function buildVerifyPrompt(
   customTemplate?: string,
 ): string {
   return fillTemplate(customTemplate ?? DEFAULT_VERIFY_TEMPLATE, { taskContent, implementOutput, gitDiff })
+}
+
+const DEFAULT_RETRY_IMPLEMENT_TEMPLATE = `Ты продолжаешь работу над задачей. Предыдущая реализация была проверена и найдены проблемы.
+
+## Исходная задача:
+{taskContent}
+
+## Что было сделано (вывод предыдущей реализации):
+{implementOutput}
+
+## Текущее состояние кода (git diff):
+{gitDiff}
+
+## Результат верификации — проблемы (попытка {attempt}):
+{verifyIssues}
+
+## Причина отклонения:
+{verifyReason}
+
+## Инструкции:
+Доработай реализацию. Сфокусируйся исключительно на невыполненных пунктах из списка выше.
+Не переписывай то, что уже работает корректно.`
+
+export interface RetryImplementPromptParams {
+  taskContent: string
+  implementOutput: string
+  gitDiff: string
+  verifyIssues: string[]
+  verifyReason?: string
+  verifyScore?: number
+  attempt: number
+  customTemplate?: string
+}
+
+export function buildRetryImplementPrompt(params: RetryImplementPromptParams): string {
+  const {
+    taskContent,
+    implementOutput,
+    gitDiff,
+    verifyIssues,
+    verifyReason,
+    verifyScore,
+    attempt,
+    customTemplate,
+  } = params
+
+  const issuesText = verifyIssues.length > 0
+    ? verifyIssues.map((i) => `- ${i}`).join('\n')
+    : '(список проблем не предоставлен)'
+
+  return fillRetryTemplate(customTemplate ?? DEFAULT_RETRY_IMPLEMENT_TEMPLATE, {
+    taskContent,
+    implementOutput: implementOutput || '(нет вывода)',
+    gitDiff: gitDiff || '(нет изменений)',
+    verifyIssues: issuesText,
+    verifyReason: verifyReason || '(причина не указана)',
+    verifyScore: String(verifyScore ?? 0),
+    attempt: String(attempt),
+  })
 }
 
 export function buildTestPrompt(

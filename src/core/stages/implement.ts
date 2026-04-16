@@ -1,20 +1,40 @@
-import { buildPrompt } from '../../adapters/prompt-builder.js'
+import { buildPrompt, buildRetryImplementPrompt } from '../../adapters/prompt-builder.js'
 import { createAdapter } from '../../adapters/opencode-adapter.js'
 import type { StageResult } from '../../types.js'
 import type { StageContext } from './index.js'
 
 export async function runImplementStage(ctx: StageContext): Promise<StageResult> {
-  const { task, config, workingDir, log } = ctx
+  const {
+    task, config, workingDir, tasksDir, log,
+    isRetry, verifyIssues, verifyReason, verifyScore, verifyRetryAttempt,
+    implementOutput, gitDiff, taskContent,
+  } = ctx
   const startTime = Date.now()
 
-  log.step('building prompt')
-  const prompt = buildPrompt({
-    taskFile: task.file,
-    tasksDir: config.tasks_dir,
-    systemPrompt: config.system_prompt,
-    contextFiles: task.context_files,
-    workingDir,
-  })
+  let prompt: string
+  if (isRetry && verifyIssues && verifyIssues.length > 0) {
+    log.step('building retry prompt (verify feedback)')
+    const verifyRetryConfig = config.stages?.verify
+    prompt = buildRetryImplementPrompt({
+      taskContent,
+      implementOutput,
+      gitDiff,
+      verifyIssues,
+      verifyReason,
+      verifyScore,
+      attempt: verifyRetryAttempt ?? 1,
+      customTemplate: verifyRetryConfig?.retry_prompt_template,
+    })
+  } else {
+    log.step('building prompt')
+    prompt = buildPrompt({
+      taskFile: task.file,
+      tasksDir,
+      systemPrompt: config.system_prompt,
+      contextFiles: task.context_files,
+      workingDir,
+    })
+  }
   log.raw(`\n  Prompt (${prompt.length} chars): ${prompt.slice(0, 120).replace(/\n/g, ' ')}…\n`)
 
   const timeout = config.adapter_options.timeout ?? 600

@@ -24,6 +24,7 @@ export interface TaskDefinition {
   context_files?: string[]
   verification_cmd?: string
   max_retries?: number
+  retry?: RetryConfig
   hooks?: TaskHooks
   stages?: StageName[]
   started_at?: string
@@ -40,6 +41,7 @@ export interface QueueDefinition {
   name?: string
   schedule?: string | null
   status: QueueStatus
+  tasks_dir?: string
   tasks: TaskDefinition[]
 }
 
@@ -47,12 +49,21 @@ export interface QueueDefinition {
 
 export type StageName = 'implement' | 'verify' | 'test'
 
+export interface RetryConfig {
+  max_attempts?: number
+  delay_seconds?: number
+  backoff?: 'none' | 'linear' | 'exponential'
+  backoff_base?: number
+}
+
 export interface StageConfig {
   prompt_template?: string
   model?: string
   timeout?: number
   threshold?: number
-  on_fail?: 'stop' | 'continue'
+  on_fail?: 'stop' | 'continue' | 'retry'
+  max_retries?: number
+  retry_prompt_template?: string
 }
 
 export interface StagesConfig {
@@ -71,6 +82,8 @@ export interface StageResult {
   reviewFile?: string
   shortSummary?: string
   fullSummary?: string
+  issues?: string[]
+  reason?: string
 }
 
 // ─── Notifications ───────────────────────────────────────────────────────────
@@ -137,6 +150,7 @@ export interface OrcLiteConfig {
   push: PushMode
   git_strategy: GitStrategy
   max_retries: number
+  retry?: RetryConfig
   hooks?: TaskHooks
   stages?: StagesConfig
   notifications?: NotificationsConfig

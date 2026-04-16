@@ -39,16 +39,38 @@ Supports multiple task queues with an optional scheduler for overnight runs.
   "logs_dir": "./.orc-lite/logs",
   "on_failure": "stop",
   "push": "none",
+  "git_strategy": "branch",
   "max_retries": 0,
+  "retry": {
+    "max_attempts": 3,
+    "delay_seconds": 10,
+    "backoff": "linear",
+    "backoff_base": 30
+  },
   "verification_cmd": "npm test",
   "commit_template": "task: {{task_name}}",
   "system_prompt": "Optional prompt prepended to every task.",
   "adapter_options": {
-    "timeout": 600
+    "timeout": 600,
+    "insecure_tls": false
   },
   "hooks": {
     "pre_task": "npm install",
     "post_task": "npm run lint:fix"
+  },
+  "stages": {
+    "verify": {
+      "threshold": 80,
+      "on_fail": "retry",
+      "max_retries": 2,
+      "retry_prompt_template": null,
+      "model": null,
+      "timeout": 300
+    },
+    "test": {
+      "on_fail": "continue",
+      "timeout": 600
+    }
   },
   "daemon": {
     "poll_interval": 60,
@@ -66,18 +88,29 @@ Supports multiple task queues with an optional scheduler for overnight runs.
   "queues": [
     {
       "name": "auth-refactor",
+      "tasks_dir": "tasks/auth",
       "schedule": null,
       "status": "pending",
       "tasks": [
         {
-          "file": "01-fix-login.md",
+          "file": "fix-login.md",
           "status": "pending",
           "context_files": ["src/auth.ts"],
           "verification_cmd": "npm run test:auth",
-          "max_retries": 2,
-          "stages": ["implement", "verify"],
+          "stages": ["implement", "verify", "test"],
+          "retry": { "max_attempts": 2, "delay_seconds": 0 },
           "hooks": { "pre_task": "npx prisma generate" }
         }
+      ]
+    },
+    {
+      "name": "api-cleanup",
+      "tasks_dir": "tasks/api",
+      "schedule": null,
+      "status": "pending",
+      "tasks": [
+        { "file": "fix-endpoint.md", "status": "pending" },
+        { "file": "fix-auth-middleware.md", "status": "pending" }
       ]
     },
     {
@@ -85,7 +118,7 @@ Supports multiple task queues with an optional scheduler for overnight runs.
       "schedule": "2:30",
       "status": "pending",
       "tasks": [
-        { "file": "02-fix-api.md", "status": "pending" }
+        { "file": "tasks/hotfix/urgent.md", "status": "pending" }
       ]
     }
   ]
@@ -94,23 +127,59 @@ Supports multiple task queues with an optional scheduler for overnight runs.
 
 Backward compat: a flat \`"tasks"\` array (orc-cli format) is automatically wrapped into a single \`default\` queue.
 
+### Task folder organisation
+
+Tasks can be organised into subfolders two ways:
+
+**1. Relative path in \`file\`** — works without any config changes, resolves against the global \`tasks_dir\`:
+\`\`\`json
+{ "file": "auth/fix-login.md", "status": "pending" }
+\`\`\`
+Points to \`<tasks_dir>/auth/fix-login.md\`. Branch name becomes \`task/auth-fix-login\`.
+
+**2. Per-queue \`tasks_dir\`** — set a different base directory per queue so task \`file\` values stay short:
+\`\`\`json
+{
+  "name": "auth-queue",
+  "tasks_dir": "tasks/auth",
+  "tasks": [
+    { "file": "fix-login.md", "status": "pending" },
+    { "file": "fix-tokens.md", "status": "pending" }
+  ]
+}
+\`\`\`
+Per-queue \`tasks_dir\` overrides the global one for that queue only. Queues without \`tasks_dir\` fall back to the global value.
+
 ## Config Fields
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| \`target_branch\` | string | *required* | Branch to merge completed tasks into |
-| \`tasks_dir\` | string | *required* | Directory with task \`.md\` files |
+| \`target_branch\` | string | *required* | Branch to merge completed tasks into (can be empty string when \`git_strategy\` is not \`"branch"\`) |
+| \`tasks_dir\` | string | *required* | Default directory with task \`.md\` files (overridable per queue) |
 | \`logs_dir\` | string | *required* | Directory for log output |
 | \`on_failure\` | \`"stop"\` | \`"stop"\` | Pipeline behavior on failure |
 | \`push\` | \`"each"\` \\| \`"end"\` \\| \`"none"\` | \`"none"\` | When to push target branch to origin |
 | \`git_strategy\` | \`"branch"\` \\| \`"commit"\` \\| \`"none"\` | \`"branch"\` | Git mode: branch-per-task, commit-in-place, or no git |
-| \`max_retries\` | number | \`0\` | Default retry count for failed tasks |
-| \`verification_cmd\` | string | — | Command to run after each task |
+| \`max_retries\` | number | \`0\` | Fallback retry count (superseded by \`retry.max_attempts\` if set) |
+| \`retry.max_attempts\` | number | — | Max outer retry attempts on error (takes priority over \`max_retries\`) |
+| \`retry.delay_seconds\` | number | \`0\` | Base delay in seconds before each retry |
+| \`retry.backoff\` | \`"none"\` \\| \`"linear"\` \\| \`"exponential"\` | \`"none"\` | Delay growth strategy between retries |
+| \`retry.backoff_base\` | number | \`30\` | Seconds added per attempt: linear \`+base×N\`, exponential \`+base×2^(N-1)\` |
+| \`verification_cmd\` | string | — | Shell command run after each task (non-zero exit = failure) |
 | \`commit_template\` | string | \`"task: {{task_name}}"\` | Commit message template |
 | \`system_prompt\` | string | — | Prompt prepended to every task |
-| \`adapter_options.timeout\` | number | \`600\` | Per-task timeout in seconds |
-| \`hooks.pre_task\` | string | — | Command before opencode runs |
-| \`hooks.post_task\` | string | — | Command after opencode runs |
+| \`adapter_options.timeout\` | number | \`600\` | Per-task opencode timeout in seconds |
+| \`adapter_options.insecure_tls\` | boolean | \`false\` | Skip TLS verification (\`NODE_TLS_REJECT_UNAUTHORIZED=0\`) |
+| \`hooks.pre_task\` | string | — | Command run before opencode starts |
+| \`hooks.post_task\` | string | — | Command run after opencode finishes |
+| \`stages.verify.threshold\` | number | \`80\` | Min score (0–100) for verify to pass |
+| \`stages.verify.on_fail\` | \`"stop"\` \\| \`"continue"\` \\| \`"retry"\` | \`"stop"\` | Action when verify fails |
+| \`stages.verify.max_retries\` | number | \`2\` | Max inner verify-retry iterations (only when \`on_fail: "retry"\`) |
+| \`stages.verify.retry_prompt_template\` | string | — | Custom prompt for retry implement (see variables below) |
+| \`stages.verify.model\` | string | — | Override opencode model for the verify stage |
+| \`stages.verify.timeout\` | number | — | Override timeout for the verify stage |
+| \`stages.test.on_fail\` | \`"stop"\` \\| \`"continue"\` | \`"stop"\` | Action when test stage fails |
+| \`stages.test.timeout\` | number | — | Override timeout for the test stage |
 | \`daemon.poll_interval\` | number | \`60\` | Seconds between scheduler.json re-reads |
 | \`daemon.log_file\` | string | — | Path for daemon log output |
 | \`notifications.telegram\` | object | — | \`bot_token\` + \`chat_id\` |
@@ -124,33 +193,150 @@ Backward compat: a flat \`"tasks"\` array (orc-cli format) is automatically wrap
 \`{{task_name}}\` — filename without .md, \`{{task_file}}\` — full filename,
 \`{{first_line}}\` — first non-empty line from .md, \`{{index}}\` — task number (1-based), \`{{total}}\` — total tasks.
 
+### Queue-Level Fields
+
+| Field | Type | Description |
+|---|---|---|
+| \`name\` | string | Display name for the queue |
+| \`tasks_dir\` | string | Override global \`tasks_dir\` for this queue only |
+| \`schedule\` | string \\| null | When to run (see Schedule Format); \`null\` = manual only |
+| \`status\` | string | Queue status (managed by orc-lite) |
+
 ### Task-Level Overrides
 
-Each task can override: \`verification_cmd\`, \`max_retries\`, \`hooks\`, \`branch\`, \`context_files\`, \`stages\`.
+Each task can override: \`verification_cmd\`, \`max_retries\`, \`retry\`, \`hooks\`, \`branch\`, \`context_files\`, \`stages\`.
 
-### Stages
+\`\`\`json
+{
+  "file": "critical-migration.md",
+  "status": "pending",
+  "branch": "feat/critical-migration",
+  "context_files": ["src/db/schema.ts", "migrations/"],
+  "verification_cmd": "npm run test:db",
+  "stages": ["implement", "verify", "test"],
+  "retry": { "max_attempts": 2, "delay_seconds": 30, "backoff": "exponential" },
+  "hooks": { "pre_task": "npx prisma generate" }
+}
+\`\`\`
 
-By default each task runs only \`implement\`. Optionally add \`verify\` and \`test\`:
+## Stages
+
+By default each task runs only \`implement\`. Optionally add \`verify\` and/or \`test\`:
+
+\`\`\`json
+{
+  "stages": ["implement", "verify", "test"]
+}
+\`\`\`
+
+Stages always start with \`implement\`. Order: \`implement → verify → test\`.
+
+### implement
+
+Runs opencode with the task file as the prompt. Commits changes after completion.
+
+### verify
+
+After \`implement\`, runs opencode to assess whether the implementation fully satisfies the task requirements.
+Outputs structured JSON:
+
+\`\`\`json
+{
+  "approved": true,
+  "score": 88,
+  "reason": null,
+  "short_summary": "All endpoints implemented, tests passing.",
+  "full_summary": "## Review\\n...",
+  "issues": []
+}
+\`\`\`
+
+If \`score >= threshold\` and \`approved: true\` — stage passes.
+Otherwise behaviour depends on \`on_fail\`:
+
+| \`on_fail\` | Behaviour |
+|---|---|
+| \`"stop"\` (default) | Task fails; queue stops |
+| \`"continue"\` | Task proceeds despite failed verify |
+| \`"retry"\` | Re-runs implement with verify feedback, up to \`max_retries\` times |
+
+#### Verify-retry loop (\`on_fail: "retry"\`)
+
+When verify fails, orc-lite feeds the \`issues\` list and \`reason\` back into a new implement run — without resetting the git branch. The agent builds on its own previous work:
+
+\`\`\`
+implement → verify (failed, score 55)
+  → issues: ["missing error handling", "no DB migration"]
+  → retry implement with feedback
+implement (retry 1) → verify (passed, score 91)
+  → done
+\`\`\`
+
+Each inner retry commits incrementally on top of the previous state.
+If all inner retries are exhausted and verify still fails, the outer retry loop (or failure) kicks in.
+
+##### Custom retry prompt template
+
+Use \`retry_prompt_template\` in \`stages.verify\` to override the default prompt sent on verify-retry.
+Available variables:
+
+| Variable | Description |
+|---|---|
+| \`{taskContent}\` | Contents of the task .md file |
+| \`{implementOutput}\` | Output from the previous implement run |
+| \`{gitDiff}\` | Current git diff (accumulated changes) |
+| \`{verifyIssues}\` | Bulleted list of issues from the failed verify |
+| \`{verifyReason}\` | Reason field from the verify JSON |
+| \`{verifyScore}\` | Numeric score from the verify JSON |
+| \`{attempt}\` | Current retry attempt number (1, 2, …) |
+
+### test
+
+After \`implement\` (and \`verify\` if present), runs opencode to write and execute tests covering the implementation.
+Set \`on_fail: "continue"\` to keep the task passing even if tests fail.
+
+## Retry Mechanism
+
+orc-lite has two independent retry layers:
+
+### Outer retry (general errors)
+
+Triggered by: opencode failure, hook failure, unexpected exception.
+Restarts the task **from scratch** — recreates the git branch, runs implement from the beginning.
+
+\`\`\`json
+{
+  "retry": {
+    "max_attempts": 3,
+    "delay_seconds": 10,
+    "backoff": "linear",
+    "backoff_base": 30
+  }
+}
+\`\`\`
+
+Delay formula:
+- \`"none"\`: always \`delay_seconds\`
+- \`"linear"\`: \`delay_seconds + backoff_base × attempt\`
+- \`"exponential"\`: \`delay_seconds + backoff_base × 2^(attempt-1)\`
+
+\`retry.max_attempts\` takes priority over the legacy \`max_retries\` field.
+
+### Inner verify-retry loop
+
+Triggered by: \`stages.verify.on_fail: "retry"\` + verify fails.
+Does **not** reset git — the agent continues working on top of its own changes.
 
 \`\`\`json
 {
   "stages": {
-    "verify": { "threshold": 80, "on_fail": "stop" },
-    "test": { "timeout": 600 }
-  },
-  "queues": [{
-    "tasks": [{
-      "file": "critical.md",
-      "stages": ["implement", "verify", "test"]
-    }]
-  }]
+    "verify": {
+      "on_fail": "retry",
+      "max_retries": 2
+    }
+  }
 }
 \`\`\`
-
-After \`implement\`, the \`verify\` stage asks opencode to assess implementation completeness (outputs JSON with score 0–100).
-If \`score >= threshold\` — proceeds. If below — writes \`<task-name>-review.md\` and stops/continues per \`on_fail\`.
-
-The \`test\` stage asks opencode to write and run tests covering the implementation.
 
 ## Schedule Format
 
@@ -171,7 +357,7 @@ Global scheduler registry: \`~/.orc-lite/scheduler.json\`
 | \`pending\` | Not started |
 | \`in_progress\` | Running now |
 | \`done\` | Completed and merged |
-| \`failed\` | Failed (opencode, hook, or verification) |
+| \`failed\` | Failed (opencode, hook, verification, or all retries exhausted) |
 | \`conflict\` | Merge conflict on target branch |
 | \`skipped\` | Skipped (not applicable) |
 
@@ -188,22 +374,23 @@ Global scheduler registry: \`~/.orc-lite/scheduler.json\`
 Behaviour depends on \`git_strategy\`:
 
 **\`branch\` (default)** — isolated branch per task:
-1. Checkout \`target_branch\`, create \`task/<name>\`
+1. Checkout \`target_branch\`, create \`task/<name>\` (or \`branch\` if set)
 2. Run \`pre_task\` hook
-3. For each stage: run opencode → commit changes
-4. Run \`post_task\` hook + \`verification_cmd\`
-5. Merge into \`target_branch\`, push if \`push: "each"\`
+3. Run \`implement\` stage → commit
+4. If \`verify\` in stages:
+   - Run \`verify\` → commit
+   - If failed and \`on_fail: "retry"\`: re-run \`implement\` with issues → re-run \`verify\` → repeat up to \`stages.verify.max_retries\` times
+5. If \`test\` in stages: run \`test\` → commit
+6. Run \`post_task\` hook + \`verification_cmd\`
+7. Merge \`task/<name>\` into \`target_branch\`, push if \`push: "each"\`
 
-**\`commit\`** — stay in current branch, commit after each task:
-- No branch creation or merge
-- Commits to whatever branch is currently checked out
-- Push if \`push: "each"\` / \`"end"\`
+**\`commit\`** — stay in current branch, commit after each task.
+No branch creation or merge. Push if \`push: "each"\` / \`"end"\`.
 
-**\`none\`** — no git operations at all:
-- Just runs opencode and leaves changes uncommitted
-- Ignores \`push\` setting
+**\`none\`** — no git operations at all.
+Just runs opencode and leaves changes uncommitted.
 
-If any step fails and \`max_retries > 0\`, the task is retried from scratch.
+If any outer step fails and retries are configured, the task restarts from step 1.
 On failure or merge conflict the queue stops. Logs: \`<logs_dir>/<task-name>.log\`.
 
 ## Resuming After Failure

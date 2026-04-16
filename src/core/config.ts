@@ -12,12 +12,21 @@ const hooksSchema = z.object({
   post_task: z.string().optional(),
 }).optional()
 
+const retryConfigSchema = z.object({
+  max_attempts: z.number().int().min(0).optional(),
+  delay_seconds: z.number().min(0).optional(),
+  backoff: z.enum(['none', 'linear', 'exponential']).optional(),
+  backoff_base: z.number().positive().optional(),
+}).optional()
+
 const stageConfigSchema = z.object({
   prompt_template: z.string().optional(),
   model: z.string().optional(),
   timeout: z.number().positive().optional(),
   threshold: z.number().min(0).max(100).optional(),
-  on_fail: z.enum(['stop', 'continue']).optional(),
+  on_fail: z.enum(['stop', 'continue', 'retry']).optional(),
+  max_retries: z.number().int().min(0).optional(),
+  retry_prompt_template: z.string().optional(),
 }).optional()
 
 const stagesConfigSchema = z.object({
@@ -32,6 +41,7 @@ const taskSchema = z.object({
   context_files: z.array(z.string()).optional(),
   verification_cmd: z.string().optional(),
   max_retries: z.number().int().min(0).optional(),
+  retry: retryConfigSchema,
   hooks: hooksSchema,
   stages: z.array(z.enum(['implement', 'verify', 'test']))
     .refine(
@@ -51,6 +61,7 @@ const queueSchema = z.object({
   name: z.string().optional(),
   schedule: z.string().nullable().optional(),
   status: z.enum(['pending', 'in_progress', 'done', 'failed']).default('pending'),
+  tasks_dir: z.string().optional(),
   tasks: z.array(taskSchema).min(1, 'queue tasks must not be empty'),
 })
 
@@ -101,6 +112,7 @@ const baseSchema = z.object({
   push: z.enum(['each', 'end', 'none']).default('none'),
   git_strategy: z.enum(['branch', 'commit', 'none']).default('branch'),
   max_retries: z.number().int().min(0).default(0),
+  retry: retryConfigSchema,
   hooks: hooksSchema,
   stages: stagesConfigSchema,
   notifications: notificationsSchema,
@@ -170,6 +182,7 @@ export function loadConfig(configPath?: string): { config: OrcLiteConfig; path: 
     push: data.push,
     git_strategy: data.git_strategy,
     max_retries: data.max_retries,
+    retry: data.retry,
     hooks: data.hooks,
     stages: data.stages,
     notifications: data.notifications,

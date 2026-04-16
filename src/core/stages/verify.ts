@@ -68,7 +68,7 @@ function appendFullSummaryToTaskFile(
 }
 
 export async function runVerifyStage(ctx: StageContext): Promise<StageResult> {
-  const { task, config, workingDir, log, stageConfig, implementOutput, gitDiff, taskContent } = ctx
+  const { task, config, workingDir, tasksDir, log, stageConfig, implementOutput, gitDiff, taskContent } = ctx
   const startTime = Date.now()
 
   const threshold = stageConfig?.threshold ?? DEFAULT_THRESHOLD
@@ -134,7 +134,7 @@ export async function runVerifyStage(ctx: StageContext): Promise<StageResult> {
   }
 
   if (parsed?.full_summary) {
-    const taskFilePath = resolve(workingDir, config.tasks_dir, task.file)
+    const taskFilePath = resolve(workingDir, tasksDir, task.file)
     appendFullSummaryToTaskFile(taskFilePath, score, threshold, approved, parsed.full_summary)
   }
 
@@ -180,9 +180,15 @@ export async function runVerifyStage(ctx: StageContext): Promise<StageResult> {
         reviewFile,
         shortSummary: parsed?.short_summary,
         fullSummary: parsed?.full_summary,
+        issues: parsed?.issues,
+        reason: parsed?.reason ?? undefined,
       }
     }
-    log.error(`verify: score ${score} below threshold ${threshold} or not approved — stopping`)
+    if (onFail === 'retry') {
+      log.raw(`  verify: failed — will retry implement with feedback`)
+    } else {
+      log.error(`verify: score ${score} below threshold ${threshold} or not approved — stopping`)
+    }
     return {
       name: 'verify',
       success: false,
@@ -192,6 +198,8 @@ export async function runVerifyStage(ctx: StageContext): Promise<StageResult> {
       reviewFile,
       shortSummary: parsed?.short_summary,
       fullSummary: parsed?.full_summary,
+      issues: parsed?.issues,
+      reason: parsed?.reason ?? undefined,
     }
   }
 
@@ -204,5 +212,7 @@ export async function runVerifyStage(ctx: StageContext): Promise<StageResult> {
     reviewFile,
     shortSummary: parsed?.short_summary,
     fullSummary: parsed?.full_summary,
+    issues: parsed?.issues,
+    reason: parsed?.reason ?? undefined,
   }
 }

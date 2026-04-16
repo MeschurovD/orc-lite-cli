@@ -387,7 +387,8 @@ function runDryRun(
     taskNum++
 
     const branchName = getTaskBranchName(task)
-    const taskFilePath = resolve(cwd, config.tasks_dir, task.file)
+    const effectiveTasksDir = queue.tasks_dir ?? config.tasks_dir
+    const taskFilePath = resolve(cwd, effectiveTasksDir, task.file)
     const fileExists = existsSync(taskFilePath)
 
     console.log(`  ${taskNum}. ${task.file}`)
@@ -396,13 +397,16 @@ function runDryRun(
     } else {
       console.log(`     Git:    ${config.git_strategy} (no branch)`)
     }
+    if (queue.tasks_dir) {
+      console.log(`     Dir:    ${effectiveTasksDir}`)
+    }
     console.log(`     File:   ${fileExists ? '✓ exists' : '✗ NOT FOUND'}`)
 
     if (fileExists) {
       try {
         const prompt = buildPrompt({
           taskFile: task.file,
-          tasksDir: config.tasks_dir,
+          tasksDir: effectiveTasksDir,
           systemPrompt: config.system_prompt,
           contextFiles: task.context_files,
           workingDir: cwd,
@@ -421,7 +425,14 @@ function runDryRun(
     }
 
     const stages = task.stages ?? ['implement']
-    console.log(`     Stages:  ${stages.join(' → ')}`)
+    const stagesLabel = stages.map((s) => {
+      if (s === 'verify' && config.stages?.verify?.on_fail === 'retry') {
+        const vr = config.stages.verify.max_retries ?? 2
+        return `${s}(retry×${vr})`
+      }
+      return s
+    }).join(' → ')
+    console.log(`     Stages:  ${stagesLabel}`)
 
     const verifyCmd = task.verification_cmd ?? config.verification_cmd
     if (verifyCmd) console.log(`     Verify:  ${verifyCmd}`)
@@ -431,8 +442,18 @@ function runDryRun(
     if (preHook) console.log(`     Pre:     ${preHook}`)
     if (postHook) console.log(`     Post:    ${postHook}`)
 
-    const retries = task.max_retries ?? config.max_retries
-    if (retries > 0) console.log(`     Retries: ${retries}`)
+    const retryCfg = task.retry ?? config.retry
+    const retries = retryCfg?.max_attempts ?? task.max_retries ?? config.max_retries
+    if (retries > 0) {
+      const backoff = retryCfg?.backoff ?? 'none'
+      const delay = retryCfg?.delay_seconds ?? 0
+      const retryDetails = backoff !== 'none'
+        ? `${retries} (delay: ${delay}s, backoff: ${backoff})`
+        : delay > 0
+          ? `${retries} (delay: ${delay}s)`
+          : String(retries)
+      console.log(`     Retries: ${retryDetails}`)
+    }
 
     console.log()
   }

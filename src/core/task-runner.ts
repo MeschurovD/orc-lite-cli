@@ -7,7 +7,7 @@ import { GitService } from '../services/git.js'
 import { getTaskBranchName, updateTaskStatus, renderCommitMessage } from './config.js'
 import { createNotifier, type Notifier } from '../services/notifier.js'
 import { runStage } from './stages/index.js'
-import type { OrcLiteConfig, TaskDefinition, TaskRunResult, TaskHooks } from '../types.js'
+import type { OrcLiteConfig, TaskDefinition, TaskRunResult, TaskHooks, RetryConfig } from '../types.js'
 
 const execAsync = promisify(exec)
 
@@ -42,18 +42,25 @@ export async function runTask(
 
   const git = new GitService(workingDir)
   const branchName = getTaskBranchName(task)
-  const maxRetries = task.max_retries ?? config.max_retries
+  const retryConfig = task.retry ?? config.retry
+  const maxRetries = retryConfig?.max_attempts ?? task.max_retries ?? config.max_retries
+  const effectiveTasksDir = config.queues[queueIndex].tasks_dir ?? config.tasks_dir
   let lastError = ''
 
   let taskContent = ''
   try {
-    const taskFilePath = resolve(workingDir, config.tasks_dir, task.file)
+    const taskFilePath = resolve(workingDir, effectiveTasksDir, task.file)
     taskContent = existsSync(taskFilePath) ? readFileSync(taskFilePath, 'utf-8').trim() : ''
   } catch { /* ignore */ }
 
   // ── Retry loop ─────────────────────────────────────────────────────────────
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
+      const delaySec = calcRetryDelay(retryConfig, attempt)
+      if (delaySec > 0) {
+        log.step(`retry delay: ${delaySec}s`)
+        await new Promise((r) => setTimeout(r, delaySec * 1000))
+      }
       log.step(`retry ${attempt}/${maxRetries}`)
       pipelineLogger.info(`  retry ${attempt}/${maxRetries} for ${task.file}`)
       updateTaskStatus(configPath, queueIndex, taskIndex, { retry_count: attempt })
@@ -95,43 +102,25 @@ export async function runTask(
       let stageError = ''
       let verifyShortSummary: string | undefined
 
-      for (const stageName of stages) {
-        const stageConfig = stageName !== 'implement' ? config.stages?.[stageName] : undefined
+      // Separate stages into: pre-verify, verify, post-verify
+      const verifyIdx = stages.indexOf('verify')
+      const hasVerifyRetry = verifyIdx !== -1 &&
+        (config.stages?.verify?.on_fail === 'retry')
+      const maxVerifyRetries = hasVerifyRetry
+        ? (config.stages?.verify?.max_retries ?? 2)
+        : 0
 
-        const stageResult = await runStage(stageName, {
-          task,
-          taskIndex,
-          config,
-          stageConfig,
-          workingDir,
-          log,
-          implementOutput,
-          gitDiff,
-          taskContent,
-        })
+      // Run non-verify stages before verify first, then inner verify-retry loop
+      // Non-verify stages: stages that come before verify, or all if no verify-retry
+      const preVerifyStages = hasVerifyRetry ? stages.slice(0, verifyIdx) : stages
+      const postVerifyStages = hasVerifyRetry ? stages.slice(verifyIdx + 1) : []
 
-        if (stageResult.tokensUsed) totalTokensUsed += stageResult.tokensUsed
-        if (stageResult.costUsd) totalCostUsd += stageResult.costUsd
-
-        if (stageName === 'implement') {
-          implementOutput = stageResult.output ?? ''
-          gitDiff = await git.getDiff()
-        }
-
-        if (stageName === 'verify' && stageResult.shortSummary) {
-          verifyShortSummary = stageResult.shortSummary
-        }
-
-        if (!stageResult.success) {
-          stageFailed = true
-          stageError = `stage "${stageName}" failed`
-          break
-        }
-
+      // Helper to commit after a stage
+      const commitStage = async (stageName: string) => {
         if (config.git_strategy !== 'none' && await git.hasChanges()) {
           let commitMsg: string
           if (stageName === 'implement') {
-            const firstLine = getFirstLine(resolve(workingDir, config.tasks_dir, task.file))
+            const firstLine = getFirstLine(resolve(workingDir, effectiveTasksDir, task.file))
             commitMsg = renderCommitMessage(config.commit_template, {
               task_name: taskName,
               task_file: task.file,
@@ -145,6 +134,126 @@ export async function runTask(
           log.step(`committing stage "${stageName}": "${commitMsg}"`)
           await git.stageAndCommit(commitMsg)
           log.success('committed')
+        }
+      }
+
+      // ── Pre-verify stages (always runs once) ───────────────────────────────
+      for (const stageName of preVerifyStages) {
+        const stageConfig = stageName !== 'implement' ? config.stages?.[stageName as keyof typeof config.stages] : undefined
+
+        const stageResult = await runStage(stageName, {
+          task, taskIndex, config, stageConfig, workingDir, tasksDir: effectiveTasksDir, log,
+          implementOutput, gitDiff, taskContent,
+        })
+
+        if (stageResult.tokensUsed) totalTokensUsed += stageResult.tokensUsed
+        if (stageResult.costUsd) totalCostUsd += stageResult.costUsd
+
+        if (stageName === 'implement') {
+          implementOutput = stageResult.output ?? ''
+          gitDiff = await git.getDiff()
+        }
+
+        if (!stageResult.success) {
+          stageFailed = true
+          stageError = `stage "${stageName}" failed`
+          break
+        }
+
+        await commitStage(stageName)
+      }
+
+      // ── Inner verify-retry loop ────────────────────────────────────────────
+      if (!stageFailed && hasVerifyRetry) {
+        let verifyIssues: string[] = []
+        let verifyReason: string | undefined
+        let verifyScore: number | undefined
+        let innerRetry = 0
+
+        while (true) {
+          // On inner retries — re-run implement with verify feedback
+          if (innerRetry > 0) {
+            log.step(`verify-retry ${innerRetry}/${maxVerifyRetries}: re-running implement with feedback`)
+            const retryResult = await runStage('implement', {
+              task, taskIndex, config, workingDir, tasksDir: effectiveTasksDir, log,
+              implementOutput, gitDiff, taskContent,
+              isRetry: true,
+              verifyIssues,
+              verifyReason,
+              verifyScore,
+              verifyRetryAttempt: innerRetry,
+            })
+
+            if (retryResult.tokensUsed) totalTokensUsed += retryResult.tokensUsed
+            if (retryResult.costUsd) totalCostUsd += retryResult.costUsd
+
+            if (!retryResult.success) {
+              stageFailed = true
+              stageError = `implement retry ${innerRetry} failed`
+              break
+            }
+
+            implementOutput = retryResult.output ?? ''
+            gitDiff = await git.getDiff()
+            await commitStage('implement')
+          }
+
+          // Run verify
+          const verifyConfig = config.stages?.verify
+          const verifyResult = await runStage('verify', {
+            task, taskIndex, config, stageConfig: verifyConfig, workingDir, tasksDir: effectiveTasksDir, log,
+            implementOutput, gitDiff, taskContent,
+          })
+
+          if (verifyResult.tokensUsed) totalTokensUsed += verifyResult.tokensUsed
+          if (verifyResult.costUsd) totalCostUsd += verifyResult.costUsd
+
+          if (verifyResult.shortSummary) {
+            verifyShortSummary = verifyResult.shortSummary
+          }
+
+          await commitStage('verify')
+
+          if (verifyResult.success) {
+            // Verify passed — exit inner loop
+            break
+          }
+
+          // Verify failed
+          verifyIssues = verifyResult.issues ?? []
+          verifyReason = verifyResult.reason
+          verifyScore = verifyResult.score
+
+          if (innerRetry >= maxVerifyRetries) {
+            stageFailed = true
+            stageError = `stage "verify" failed after ${innerRetry} retries`
+            break
+          }
+
+          innerRetry++
+        }
+      }
+
+      // ── Post-verify stages ────────────────────────────────────────────────
+      if (!stageFailed) {
+        for (const stageName of postVerifyStages) {
+          const stageConfig = stageName !== 'implement' ? config.stages?.[stageName as keyof typeof config.stages] : undefined
+
+          const stageResult = await runStage(stageName, {
+            task, taskIndex, config, stageConfig, workingDir, tasksDir: effectiveTasksDir, log,
+            implementOutput, gitDiff, taskContent,
+          })
+
+          if (stageResult.tokensUsed) totalTokensUsed += stageResult.tokensUsed
+          if (stageResult.costUsd) totalCostUsd += stageResult.costUsd
+
+          if (!stageResult.success) {
+            stageFailed = true
+            stageError = `stage "${stageName}" failed`
+            break
+          }
+
+          await commitStage(stageName)
         }
       }
 
@@ -179,7 +288,7 @@ export async function runTask(
       }
 
       if (config.git_strategy !== 'none' && await git.hasChanges()) {
-        const firstLine = getFirstLine(resolve(workingDir, config.tasks_dir, task.file))
+        const firstLine = getFirstLine(resolve(workingDir, effectiveTasksDir, task.file))
         const commitMsg = renderCommitMessage(config.commit_template, {
           task_name: taskName,
           task_file: task.file,
@@ -316,5 +425,19 @@ function getFirstLine(filePath: string): string {
     return line.replace(/^#+\s*/, '').trim()
   } catch {
     return ''
+  }
+}
+
+function calcRetryDelay(retryConfig: RetryConfig | undefined, attempt: number): number {
+  if (!retryConfig) return 0
+  const base = retryConfig.delay_seconds ?? 0
+  const backoffBase = retryConfig.backoff_base ?? 30
+  switch (retryConfig.backoff) {
+    case 'linear':
+      return base + backoffBase * attempt
+    case 'exponential':
+      return base + backoffBase * Math.pow(2, attempt - 1)
+    default:
+      return base
   }
 }

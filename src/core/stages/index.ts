@@ -10,10 +10,17 @@ export interface StageContext {
   config: OrcLiteConfig
   stageConfig?: StageConfig
   workingDir: string
+  tasksDir: string
   log: TaskLogger
   implementOutput: string
   gitDiff: string
   taskContent: string
+  // verify-retry context (populated on retry attempts)
+  isRetry?: boolean
+  verifyIssues?: string[]
+  verifyReason?: string
+  verifyScore?: number
+  verifyRetryAttempt?: number
 }
 
 export async function runStage(name: StageName, ctx: StageContext): Promise<StageResult> {
