@@ -14,13 +14,15 @@ Supports multiple task queues with an optional scheduler for overnight runs.
 
 | Command | Description |
 |---|---|
-| \`orc-lite init\` | Create \`orc-lite.config.json\` interactively |
+| \`orc-lite init\` | Create \`orc-lite.config.json\` interactively (supports multiple queues) |
 | \`orc-lite run [N]\` | Run queue N (or first pending queue) |
 | \`orc-lite run --all\` | Run all pending queues sequentially |
 | \`orc-lite run --dry-run\` | Preview pipeline without executing |
 | \`orc-lite status\` | Show queues and task status |
-| \`orc-lite add <file>\` | Add task file to a queue (creates template if missing) |
-| \`orc-lite reset <file>\` | Reset a failed/conflict task to pending |
+| \`orc-lite add [file]\` | Add task(s) to a queue — interactive without file arg |
+| \`orc-lite reset [file]\` | Reset failed/stuck task — interactive recovery without file arg |
+| \`orc-lite queue list\` | List all queues with status and configured defaults |
+| \`orc-lite queue add [name]\` | Add a new queue interactively |
 | \`orc-lite logs [task]\` | View task logs; --tail to follow |
 | \`orc-lite validate\` | Check config, files, git, opencode availability |
 | \`orc-lite schedule [N] <time>\` | Set schedule for a queue |
@@ -91,14 +93,19 @@ Supports multiple task queues with an optional scheduler for overnight runs.
       "tasks_dir": "tasks/auth",
       "schedule": null,
       "status": "pending",
+      // Per-queue defaults — override global, task-level overrides these
+      "stages": ["implement", "verify"],
+      "max_retries": 2,
+      "retry": { "max_attempts": 2, "delay_seconds": 10, "backoff": "linear" },
+      "verification_cmd": "npm run test:auth",
       "tasks": [
         {
           "file": "fix-login.md",
           "status": "pending",
           "context_files": ["src/auth.ts"],
-          "verification_cmd": "npm run test:auth",
+          // Task-level overrides queue defaults:
           "stages": ["implement", "verify", "test"],
-          "retry": { "max_attempts": 2, "delay_seconds": 0 },
+          "retry": { "max_attempts": 3, "delay_seconds": 0 },
           "hooks": { "pre_task": "npx prisma generate" }
         }
       ]
@@ -201,6 +208,20 @@ Per-queue \`tasks_dir\` overrides the global one for that queue only. Queues wit
 | \`tasks_dir\` | string | Override global \`tasks_dir\` for this queue only |
 | \`schedule\` | string \\| null | When to run (see Schedule Format); \`null\` = manual only |
 | \`status\` | string | Queue status (managed by orc-lite) |
+| \`stages\` | string[] | Default stages for tasks in this queue |
+| \`max_retries\` | number | Default max retries for tasks in this queue |
+| \`retry\` | object | Default retry config for tasks in this queue |
+| \`verification_cmd\` | string | Default verification command for tasks in this queue |
+
+### Settings Fallback Chain
+
+For \`stages\`, \`max_retries\`, \`retry\`, and \`verification_cmd\`, the first defined value wins:
+
+\`\`\`
+task-level  →  queue-level  →  global config
+\`\`\`
+
+Set queue-level defaults once; override per task only when needed.
 
 ### Task-Level Overrides
 
@@ -396,9 +417,27 @@ On failure or merge conflict the queue stops. Logs: \`<logs_dir>/<task-name>.log
 ## Resuming After Failure
 
 \`\`\`bash
-orc-lite reset <task-file.md>
+# Interactive: pick failed tasks and choose recovery action
+orc-lite reset
+
+# Quick: reset a specific task
+orc-lite reset fix-auth.md
+
+# Then re-run the queue
 orc-lite run
 \`\`\`
+
+**Interactive recovery actions:**
+
+| Action | Effect |
+|---|---|
+| Reset | retry as-is |
+| Bump timeout | doubles \`adapter_options.timeout\` globally |
+| Add retries | sets \`max_retries\` on the task |
+| Change stages | select new stage set |
+| Mark as skipped | sets status to \`skipped\` |
+
+The queue status (\`failed\`/\`in_progress\`) is reset to \`pending\` automatically.
 
 ## Scheduler Workflow (overnight)
 
