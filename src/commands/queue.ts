@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import chalk from 'chalk'
-import { input, confirm, checkbox, select } from '@inquirer/prompts'
+import { input, checkbox, select } from '@inquirer/prompts'
 import { loadConfig } from '../core/config.js'
 import type { RetryConfig, StageName } from '../types.js'
 
@@ -98,9 +98,12 @@ export async function queueAddCommand(
 
   const resolvedDir = resolve(queueDir)
   if (!existsSync(resolvedDir)) {
-    const shouldCreate = await confirm({
-      message: `Directory "${queueDir}" doesn't exist. Create it?`,
-      default: true,
+    const shouldCreate = await select({
+      message: `Directory "${queueDir}" doesn't exist.`,
+      choices: [
+        { name: 'Create it', value: true },
+        { name: 'Skip', value: false },
+      ],
     })
     if (shouldCreate) {
       mkdirSync(resolvedDir, { recursive: true })
@@ -125,9 +128,12 @@ export interface QueueDefaults {
 }
 
 export async function promptQueueDefaults(): Promise<QueueDefaults> {
-  const configure = await confirm({
-    message: 'Configure task defaults for this queue?',
-    default: false,
+  const configure = await select({
+    message: 'Task defaults for this queue:',
+    choices: [
+      { name: 'Skip — inherit from global config', value: false },
+      { name: 'Configure — set stages, retries, verification', value: true },
+    ],
   })
 
   if (!configure) return {}

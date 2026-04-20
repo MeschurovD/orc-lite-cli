@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve, dirname, basename } from 'node:path'
 import chalk from 'chalk'
-import { select, checkbox, confirm, input } from '@inquirer/prompts'
+import { select, checkbox, input } from '@inquirer/prompts'
 import { loadConfig, saveConfig } from '../core/config.js'
 import type { TaskDefinition } from '../types.js'
 
@@ -162,9 +162,12 @@ async function interactiveAdd(
 
   // ── 3. Optional task options ─────────────────────────────────────────────────
 
-  const configureOpts = await confirm({
-    message: 'Configure options for selected tasks?',
-    default: false,
+  const configureOpts = await select({
+    message: 'Task options:',
+    choices: [
+      { name: 'Skip — add with defaults', value: false },
+      { name: 'Configure — set stages, retries, context files', value: true },
+    ],
   })
 
   let taskStages: string[] | undefined

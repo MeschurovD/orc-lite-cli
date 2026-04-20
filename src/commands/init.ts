@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, basename } from 'node:path'
 import chalk from 'chalk'
-import { select, input, confirm } from '@inquirer/prompts'
+import { select, input } from '@inquirer/prompts'
 import type { OrcLiteConfig, TaskDefinition, QueueDefinition } from '../types.js'
 import { CONFIG_FILENAME } from '../core/config.js'
 import { promptQueueDefaults } from './queue.js'
@@ -101,7 +101,13 @@ export async function initCommand(): Promise<void> {
       queues.push(buildQueue(queueName, queueDir, tasksDir, defaults))
       queueNum++
 
-      addMore = await confirm({ message: 'Add another queue?', default: false })
+      addMore = await select({
+        message: 'Add another queue?',
+        choices: [
+          { name: 'No', value: false },
+          { name: 'Yes', value: true },
+        ],
+      })
     }
   }
 
