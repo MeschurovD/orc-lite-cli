@@ -156,8 +156,9 @@ queueCmd
 program
   .command('docs')
   .description('Generate .orc-lite.md reference file in the current directory')
-  .option('-o, --output <path>', 'output file path', '.orc-lite.md')
+  .option('-o, --output <path>', 'output file path')
   .option('-f, --force', 'overwrite if file already exists')
+  .option('-l, --lang <lang>', 'language: en (default) or ru', 'en')
   .action((options) => {
     docsCommand(options)
   })

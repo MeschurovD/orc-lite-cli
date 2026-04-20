@@ -535,14 +535,529 @@ See src/auth/ for existing code. Use existing User model from src/models/user.ts
 \`\`\`
 `
 
-export function docsCommand(options: { output?: string; force?: boolean }): void {
-  const outputPath = resolve(options.output ?? DOCS_FILENAME)
+const DOCS_FILENAME_RU = '.orc-lite.ru.md'
+
+const DOCS_CONTENT_RU = `# orc-lite — Справочник
+
+CLI-оркестратор для автономного последовательного выполнения задач через opencode.
+Запускает задачи из markdown-файлов по очереди, коммитит и мёрджит результаты.
+Поддерживает несколько очередей задач с опциональным планировщиком для ночных запусков.
+
+## Команды
+
+| Команда | Описание |
+|---|---|
+| \`orc-lite init\` | Интерактивное создание \`orc-lite.config.json\` (поддерживает несколько очередей) |
+| \`orc-lite run [N]\` | Запустить очередь N (или первую ожидающую) |
+| \`orc-lite run --all\` | Запустить все ожидающие очереди последовательно |
+| \`orc-lite run --dry-run\` | Предпросмотр пайплайна без выполнения |
+| \`orc-lite status\` | Показать статус очередей и задач |
+| \`orc-lite add [file]\` | Добавить задачу в очередь — интерактивный режим без аргумента |
+| \`orc-lite reset [file]\` | Сбросить упавшую/зависшую задачу — интерактивное восстановление без аргумента |
+| \`orc-lite queue list\` | Список всех очередей со статусом и настройками |
+| \`orc-lite queue add [name]\` | Добавить новую очередь интерактивно |
+| \`orc-lite logs [task]\` | Просмотр логов задачи; --tail для слежения в реальном времени |
+| \`orc-lite validate\` | Проверить конфиг, файлы, git и доступность opencode |
+| \`orc-lite schedule [N] <time>\` | Задать расписание очереди, зарегистрировать и авто-запустить daemon |
+| \`orc-lite schedule --list\` | Список всех запланированных задач (все репозитории) |
+| \`orc-lite schedule --cancel [id]\` | Отменить запланированную задачу |
+| \`orc-lite register\` | Зарегистрировать очереди из конфига в планировщике; авто-запускает daemon |
+| \`orc-lite daemon\` | Запустить фоновый процесс планировщика вручную |
+| \`orc-lite docs\` | Сгенерировать этот справочный файл в проекте |
+
+## Конфиг: \`orc-lite.config.json\`
+
+\`\`\`json
+{
+  "target_branch": "main",
+  "tasks_dir": "./tasks",
+  "logs_dir": "./.orc-lite/logs",
+  "on_failure": "stop",
+  "push": "none",
+  "git_strategy": "branch",
+  "max_retries": 0,
+  "retry": {
+    "max_attempts": 3,
+    "delay_seconds": 10,
+    "backoff": "linear",
+    "backoff_base": 30
+  },
+  "verification_cmd": "npm test",
+  "commit_template": "task: {{task_name}}",
+  "system_prompt": "Опциональный промпт, добавляемый перед каждой задачей.",
+  "adapter_options": {
+    "timeout": 600,
+    "insecure_tls": false
+  },
+  "hooks": {
+    "pre_task": "npm install",
+    "post_task": "npm run lint:fix"
+  },
+  "stages": {
+    "verify": {
+      "threshold": 80,
+      "on_fail": "retry",
+      "max_retries": 2,
+      "retry_prompt_template": null,
+      "model": null,
+      "timeout": 300
+    },
+    "test": {
+      "on_fail": "continue",
+      "timeout": 600
+    }
+  },
+  "daemon": {
+    "poll_interval": 60,
+    "log_file": ".orc-lite/daemon.log"
+  },
+  "notifications": {
+    "telegram": {
+      "bot_token": "123456:ABC-DEF...",
+      "chat_id": "-1001234567890",
+      "proxy": "http://user:pass@host:port",
+      "use_env_proxy": false
+    },
+    "on": ["task_done", "task_failed", "task_conflict", "pipeline_done", "pipeline_failed"]
+  },
+  "queues": [
+    {
+      "name": "auth-refactor",
+      "tasks_dir": "tasks/auth",
+      "schedule": null,
+      "status": "pending",
+      "stages": ["implement", "verify"],
+      "max_retries": 2,
+      "retry": { "max_attempts": 2, "delay_seconds": 10, "backoff": "linear" },
+      "verification_cmd": "npm run test:auth",
+      "tasks": [
+        {
+          "file": "fix-login.md",
+          "status": "pending",
+          "context_files": ["src/auth.ts"],
+          "stages": ["implement", "verify", "test"],
+          "retry": { "max_attempts": 3, "delay_seconds": 0 },
+          "hooks": { "pre_task": "npx prisma generate" }
+        }
+      ]
+    },
+    {
+      "name": "nightly-fixes",
+      "schedule": "2:30",
+      "status": "pending",
+      "tasks": [
+        { "file": "tasks/hotfix/urgent.md", "status": "pending" }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+Обратная совместимость: плоский массив \`"tasks"\` (формат orc-cli) автоматически оборачивается в очередь \`default\`.
+
+### Организация папки задач
+
+Задачи можно организовывать в подпапки двумя способами:
+
+**1. Относительный путь в \`file\`** — работает без изменений конфига, разрешается относительно глобального \`tasks_dir\`:
+\`\`\`json
+{ "file": "auth/fix-login.md", "status": "pending" }
+\`\`\`
+Указывает на \`<tasks_dir>/auth/fix-login.md\`. Ветка: \`task/auth-fix-login\`.
+
+**2. \`tasks_dir\` на уровне очереди** — отдельная базовая директория для очереди, файлы задач остаются короткими:
+\`\`\`json
+{
+  "name": "auth-queue",
+  "tasks_dir": "tasks/auth",
+  "tasks": [
+    { "file": "fix-login.md", "status": "pending" },
+    { "file": "fix-tokens.md", "status": "pending" }
+  ]
+}
+\`\`\`
+\`tasks_dir\` очереди перекрывает глобальный только для этой очереди.
+
+## Поля конфига
+
+| Поле | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| \`target_branch\` | string | *обязательно* | Ветка для мёрджа завершённых задач (может быть пустой строкой при \`git_strategy\` не \`"branch"\`) |
+| \`tasks_dir\` | string | *обязательно* | Директория с \`.md\` файлами задач (переопределяется на уровне очереди) |
+| \`logs_dir\` | string | *обязательно* | Директория для логов |
+| \`on_failure\` | \`"stop"\` | \`"stop"\` | Поведение при ошибке |
+| \`push\` | \`"each"\` \\| \`"end"\` \\| \`"none"\` | \`"none"\` | Когда пушить целевую ветку в origin |
+| \`git_strategy\` | \`"branch"\` \\| \`"commit"\` \\| \`"none"\` | \`"branch"\` | Git-режим: ветка на задачу, коммит на месте, или без git |
+| \`max_retries\` | number | \`0\` | Запасное число повторов (перекрывается \`retry.max_attempts\`) |
+| \`retry.max_attempts\` | number | — | Макс. повторов при ошибке (приоритет над \`max_retries\`) |
+| \`retry.delay_seconds\` | number | \`0\` | Базовая задержка в секундах перед повтором |
+| \`retry.backoff\` | \`"none"\` \\| \`"linear"\` \\| \`"exponential"\` | \`"none"\` | Стратегия нарастания задержки |
+| \`retry.backoff_base\` | number | \`30\` | Секунд добавляется за попытку: linear \`+base×N\`, exponential \`+base×2^(N-1)\` |
+| \`verification_cmd\` | string | — | Shell-команда после каждой задачи (ненулевой код = ошибка) |
+| \`commit_template\` | string | \`"task: {{task_name}}"\` | Шаблон сообщения коммита |
+| \`system_prompt\` | string | — | Промпт, добавляемый перед каждой задачей |
+| \`adapter_options.timeout\` | number | \`600\` | Таймаут opencode на задачу в секундах |
+| \`adapter_options.insecure_tls\` | boolean | \`false\` | Отключить проверку TLS (\`NODE_TLS_REJECT_UNAUTHORIZED=0\`) |
+| \`hooks.pre_task\` | string | — | Команда перед запуском opencode |
+| \`hooks.post_task\` | string | — | Команда после завершения opencode |
+| \`stages.verify.threshold\` | number | \`80\` | Минимальный score (0–100) для прохождения verify |
+| \`stages.verify.on_fail\` | \`"stop"\` \\| \`"continue"\` \\| \`"retry"\` | \`"stop"\` | Действие при провале verify |
+| \`stages.verify.max_retries\` | number | \`2\` | Макс. итераций verify-retry (только при \`on_fail: "retry"\`) |
+| \`stages.verify.retry_prompt_template\` | string | — | Кастомный промпт для retry-implement (переменные — ниже) |
+| \`stages.verify.model\` | string | — | Переопределить модель opencode для стадии verify |
+| \`stages.verify.timeout\` | number | — | Переопределить таймаут для стадии verify |
+| \`stages.test.on_fail\` | \`"stop"\` \\| \`"continue"\` | \`"stop"\` | Действие при провале стадии test |
+| \`stages.test.timeout\` | number | — | Переопределить таймаут для стадии test |
+| \`daemon.poll_interval\` | number | \`60\` | Секунд между перечитываниями scheduler.json |
+| \`daemon.log_file\` | string | — | Путь для лога daemon |
+| \`notifications.telegram.bot_token\` | string | — | Токен Telegram-бота (или env-переменная \`BOT_TOKEN\`) |
+| \`notifications.telegram.chat_id\` | string | — | ID чата/канала (или env-переменная \`CHAT_ID\`) |
+| \`notifications.telegram.proxy\` | string | — | HTTP-прокси для Telegram (перекрывает глобальный) |
+| \`notifications.telegram.use_env_proxy\` | boolean | \`false\` | Брать прокси из env для Telegram |
+| \`notifications.webhook\` | string | — | URL вебхука (POST с JSON) |
+| \`notifications.proxy\` | string | — | HTTP-прокси для всех уведомлений |
+| \`notifications.use_env_proxy\` | boolean | \`false\` | Брать HTTPS_PROXY / HTTP_PROXY из env |
+| \`notifications.on\` | string[] | — | События: \`task_done\`, \`task_failed\`, \`task_conflict\`, \`pipeline_done\`, \`pipeline_failed\` |
+
+### Переменные шаблона коммита
+
+\`{{task_name}}\` — имя файла без .md, \`{{task_file}}\` — полное имя файла,
+\`{{first_line}}\` — первая непустая строка из .md, \`{{index}}\` — номер задачи (с 1), \`{{total}}\` — всего задач.
+
+### Поля на уровне очереди
+
+| Поле | Тип | Описание |
+|---|---|---|
+| \`name\` | string | Отображаемое имя очереди |
+| \`tasks_dir\` | string | Переопределить глобальный \`tasks_dir\` для этой очереди |
+| \`schedule\` | string \\| null | Время запуска (см. Форматы расписания); \`null\` = только вручную |
+| \`status\` | string | Статус очереди (управляется orc-lite) |
+| \`stages\` | string[] | Стадии по умолчанию для задач в очереди |
+| \`max_retries\` | number | Макс. повторов по умолчанию для задач очереди |
+| \`retry\` | object | Конфиг повторов по умолчанию для задач очереди |
+| \`verification_cmd\` | string | Команда верификации по умолчанию для задач очереди |
+
+### Приоритет настроек
+
+Для \`stages\`, \`max_retries\`, \`retry\` и \`verification_cmd\` используется первое определённое значение:
+
+\`\`\`
+задача  →  очередь  →  глобальный конфиг
+\`\`\`
+
+### Переопределения на уровне задачи
+
+Каждая задача может переопределить: \`verification_cmd\`, \`max_retries\`, \`retry\`, \`hooks\`, \`branch\`, \`context_files\`, \`stages\`.
+
+\`\`\`json
+{
+  "file": "critical-migration.md",
+  "status": "pending",
+  "branch": "feat/critical-migration",
+  "context_files": ["src/db/schema.ts", "migrations/"],
+  "verification_cmd": "npm run test:db",
+  "stages": ["implement", "verify", "test"],
+  "retry": { "max_attempts": 2, "delay_seconds": 30, "backoff": "exponential" },
+  "hooks": { "pre_task": "npx prisma generate" }
+}
+\`\`\`
+
+## Стадии
+
+По умолчанию каждая задача выполняет только \`implement\`. Опционально добавьте \`verify\` и/или \`test\`:
+
+\`\`\`json
+{
+  "stages": ["implement", "verify", "test"]
+}
+\`\`\`
+
+Стадии всегда начинаются с \`implement\`. Порядок: \`implement → verify → test\`.
+
+### implement
+
+Запускает opencode с файлом задачи как промптом. Коммитит изменения после завершения.
+
+### verify
+
+После \`implement\` запускает opencode для оценки — полностью ли реализация соответствует задаче.
+Возвращает структурированный JSON:
+
+\`\`\`json
+{
+  "approved": true,
+  "score": 88,
+  "reason": null,
+  "short_summary": "Все эндпоинты реализованы, тесты проходят.",
+  "full_summary": "## Ревью\\n...",
+  "issues": []
+}
+\`\`\`
+
+Если \`score >= threshold\` и \`approved: true\` — стадия пройдена.
+Иначе поведение определяется \`on_fail\`:
+
+| \`on_fail\` | Поведение |
+|---|---|
+| \`"stop"\` (по умолчанию) | Задача проваливается; очередь останавливается |
+| \`"continue"\` | Задача продолжается несмотря на провал verify |
+| \`"retry"\` | Перезапускает implement с обратной связью от verify, до \`max_retries\` раз |
+
+#### Цикл verify-retry (\`on_fail: "retry"\`)
+
+При провале verify orc-lite передаёт список \`issues\` и \`reason\` в новый запуск implement — без сброса git-ветки:
+
+\`\`\`
+implement → verify (провал, score 55)
+  → issues: ["нет обработки ошибок", "нет миграции БД"]
+  → retry implement с обратной связью
+implement (retry 1) → verify (пройден, score 91)
+  → готово
+\`\`\`
+
+Каждый внутренний retry коммитит поверх предыдущего состояния.
+
+##### Кастомный шаблон промпта retry
+
+Используйте \`retry_prompt_template\` в \`stages.verify\` для переопределения промпта при verify-retry.
+Доступные переменные:
+
+| Переменная | Описание |
+|---|---|
+| \`{taskContent}\` | Содержимое .md файла задачи |
+| \`{implementOutput}\` | Вывод предыдущего запуска implement |
+| \`{gitDiff}\` | Текущий git diff (накопленные изменения) |
+| \`{verifyIssues}\` | Список проблем из провального verify |
+| \`{verifyReason}\` | Поле reason из JSON verify |
+| \`{verifyScore}\` | Числовой score из JSON verify |
+| \`{attempt}\` | Номер текущей попытки retry (1, 2, …) |
+
+### test
+
+После \`implement\` (и \`verify\` если есть) запускает opencode для написания и выполнения тестов.
+Установите \`on_fail: "continue"\` чтобы задача считалась успешной даже при провале тестов.
+
+## Механизм повторов
+
+orc-lite имеет два независимых слоя повторов:
+
+### Внешний retry (общие ошибки)
+
+Триггер: ошибка opencode, хука, неожиданное исключение.
+Перезапускает задачу **с нуля** — пересоздаёт git-ветку, запускает implement заново.
+
+\`\`\`json
+{
+  "retry": {
+    "max_attempts": 3,
+    "delay_seconds": 10,
+    "backoff": "linear",
+    "backoff_base": 30
+  }
+}
+\`\`\`
+
+Формула задержки:
+- \`"none"\`: всегда \`delay_seconds\`
+- \`"linear"\`: \`delay_seconds + backoff_base × attempt\`
+- \`"exponential"\`: \`delay_seconds + backoff_base × 2^(attempt-1)\`
+
+\`retry.max_attempts\` имеет приоритет над устаревшим полем \`max_retries\`.
+
+### Внутренний цикл verify-retry
+
+Триггер: \`stages.verify.on_fail: "retry"\` + verify провален.
+**Не сбрасывает** git — агент продолжает работу поверх своих изменений.
+
+\`\`\`json
+{
+  "stages": {
+    "verify": {
+      "on_fail": "retry",
+      "max_retries": 2
+    }
+  }
+}
+\`\`\`
+
+## Форматы расписания
+
+| Ввод | Интерпретация |
+|---|---|
+| \`"2:30"\` | Следующее 2:30 (сегодня ночью или завтра) |
+| \`"14:30"\` | Следующее 14:30 |
+| \`"2026-04-09"\` | Эта дата в 00:00 |
+| \`"2026-04-09 2:30"\` | Эта дата в 2:30 |
+| \`"2026-04-09T02:30:00"\` | ISO 8601 точное |
+
+Время отображается и интерпретируется в **локальном часовом поясе**.
+Глобальный реестр: \`~/.orc-lite/scheduler.json\`
+
+## Статусы задач
+
+| Статус | Значение |
+|---|---|
+| \`pending\` | Не начата |
+| \`in_progress\` | Выполняется |
+| \`done\` | Завершена и смёрджена |
+| \`failed\` | Провалена (opencode, хук, верификация или все повторы исчерпаны) |
+| \`conflict\` | Конфликт мёрджа в целевой ветке |
+| \`skipped\` | Пропущена |
+
+## Статусы очередей
+
+\`pending\` → \`in_progress\` → \`done\` / \`failed\`
+
+## Уведомления
+
+### Настройка Telegram
+
+1. Создайте бота через [@BotFather](https://t.me/BotFather), скопируйте токен.
+2. Получите chat_id: добавьте бота в чат/канал, затем вызовите \`https://api.telegram.org/bot<token>/getUpdates\`.
+3. Добавьте в конфиг:
+
+\`\`\`json
+{
+  "notifications": {
+    "telegram": {
+      "bot_token": "123456:ABC-DEF...",
+      "chat_id": "-1001234567890"
+    },
+    "on": ["task_done", "task_failed", "task_conflict", "pipeline_done", "pipeline_failed"]
+  }
+}
+\`\`\`
+
+**Env-переменные вместо конфига** — \`bot_token\` и \`chat_id\` можно не указывать, если заданы:
+
+\`\`\`bash
+export BOT_TOKEN=123456:ABC-DEF...
+export CHAT_ID=-1001234567890
+\`\`\`
+
+**Прокси** (если Telegram заблокирован):
+
+\`\`\`json
+{
+  "notifications": {
+    "telegram": {
+      "bot_token": "...",
+      "chat_id": "...",
+      "proxy": "http://user:pass@host:3128"
+    },
+    "on": ["task_failed", "pipeline_done"]
+  }
+}
+\`\`\`
+
+Или \`"use_env_proxy": true\` для автоматического подхвата \`HTTPS_PROXY\` / \`HTTP_PROXY\` из env.
+
+### Вебхук
+
+POST-запрос с JSON-телом \`{ event, message, taskFile, durationMs, error, ... }\`:
+
+\`\`\`json
+{
+  "notifications": {
+    "webhook": "https://hooks.example.com/orc-lite",
+    "on": ["pipeline_done", "pipeline_failed"]
+  }
+}
+\`\`\`
+
+## Пайплайн
+
+Поведение зависит от \`git_strategy\`:
+
+**\`branch\` (по умолчанию)** — изолированная ветка на каждую задачу:
+1. Checkout \`target_branch\`, создать \`task/<name>\` (или \`branch\` если задан)
+2. Запустить хук \`pre_task\`
+3. Запустить стадию \`implement\` → коммит
+4. Если \`verify\` в стадиях:
+   - Запустить \`verify\` → коммит
+   - При провале и \`on_fail: "retry"\`: перезапустить \`implement\` с проблемами → перезапустить \`verify\` → повторять до \`stages.verify.max_retries\` раз
+5. Если \`test\` в стадиях: запустить \`test\` → коммит
+6. Запустить хук \`post_task\` + \`verification_cmd\`
+7. Смёрджить \`task/<name>\` в \`target_branch\`, запушить если \`push: "each"\`
+
+**\`commit\`** — оставаться в текущей ветке, коммитить после каждой задачи.
+Без создания ветки и мёрджа. Пуш если \`push: "each"\` / \`"end"\`.
+
+**\`none\`** — без git-операций.
+Просто запускает opencode и оставляет изменения незакоммиченными.
+
+При любой ошибке внешнего шага, если настроены повторы, задача перезапускается с шага 1.
+При ошибке или конфликте мёрджа очередь останавливается. Логи: \`<logs_dir>/<task-name>.log\`.
+
+## Восстановление после сбоя
+
+\`\`\`bash
+# Интерактивно: выбрать упавшие задачи и действие восстановления
+orc-lite reset
+
+# Быстро: сбросить конкретную задачу
+orc-lite reset fix-auth.md
+
+# Затем перезапустить очередь
+orc-lite run
+\`\`\`
+
+**Действия восстановления (интерактивный режим):**
+
+| Действие | Эффект |
+|---|---|
+| Reset | повтор как есть |
+| Bump timeout | удваивает \`adapter_options.timeout\` глобально |
+| Add retries | устанавливает \`max_retries\` на задачу |
+| Change stages | выбор нового набора стадий |
+| Mark as skipped | устанавливает статус \`skipped\` |
+
+Статус очереди (\`failed\`/\`in_progress\`) автоматически сбрасывается до \`pending\`.
+
+## Ночной сценарий работы
+
+\`\`\`bash
+# Задать расписание — daemon запускается автоматически
+orc-lite schedule 2:00
+
+# Утром: проверить результаты
+orc-lite status
+orc-lite logs
+\`\`\`
+
+PID-файл daemon: \`~/.orc-lite/daemon.pid\`
+Просроченные задачи (< 1ч): выполняются немедленно. Просроченные > 1ч: пропускаются с предупреждением.
+
+## Формат файла задачи
+
+Обычный markdown — пишите как промпт:
+
+\`\`\`markdown
+# Добавить аутентификацию пользователей
+
+Реализовать JWT-аутентификацию:
+- POST /auth/login — email + пароль, возвращает JWT
+- POST /auth/register — создаёт пользователя
+- Добавить middleware аутентификации
+- Защитить маршруты /api/*
+
+## Контекст
+
+Смотри src/auth/ для существующего кода. Используй модель User из src/models/user.ts.
+\`\`\`
+`
+
+export function docsCommand(options: { output?: string; force?: boolean; lang?: string }): void {
+  const isRu = options.lang === 'ru'
+  const defaultFilename = isRu ? DOCS_FILENAME_RU : DOCS_FILENAME
+  const content = isRu ? DOCS_CONTENT_RU : DOCS_CONTENT
+  const outputPath = resolve(options.output ?? defaultFilename)
 
   if (existsSync(outputPath) && !options.force) {
     console.error(chalk.yellow(`${outputPath} already exists. Use --force to overwrite.`))
     process.exit(1)
   }
 
-  writeFileSync(outputPath, DOCS_CONTENT, 'utf-8')
+  writeFileSync(outputPath, content, 'utf-8')
   console.log(chalk.green(`✓ Generated ${outputPath}`))
 }
