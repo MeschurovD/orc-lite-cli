@@ -200,22 +200,32 @@ async function handleCancel(options: ScheduleOptions): Promise<void> {
   const cancelArg = options.cancel
 
   if (typeof cancelArg === 'string' && cancelArg.length > 0) {
-    // Cancel specific job by ID
     const ok = cancelJob(cancelArg)
     if (ok) {
-      console.log(chalk.green(`✓ Job ${cancelArg} cancelled`))
+      console.log(chalk.green(`✓ Job ${cancelArg} removed`))
     } else {
       console.error(chalk.red(`Job not found: ${cancelArg}`))
       process.exit(1)
     }
   } else {
-    // Cancel all jobs for current repo
     const cwd = process.cwd()
     const count = cancelJobsForRepo(cwd)
     if (count > 0) {
-      console.log(chalk.green(`✓ ${count} job(s) cancelled for ${cwd}`))
+      console.log(chalk.green(`✓ ${count} job(s) removed for ${cwd}`))
     } else {
       console.log(chalk.dim('No scheduled jobs found for this repo.'))
+    }
+  }
+
+  // If no scheduled jobs remain, stop the daemon
+  const remaining = loadRegistry().jobs.filter((j) => j.status === 'scheduled')
+  if (remaining.length === 0 && isDaemonRunning()) {
+    const pid = getDaemonPid()
+    try {
+      process.kill(pid!, 'SIGTERM')
+      console.log(chalk.dim(`  No scheduled jobs remaining — daemon stopped (PID ${pid})`))
+    } catch {
+      console.log(chalk.dim('  No scheduled jobs remaining (daemon was not running)'))
     }
   }
 }

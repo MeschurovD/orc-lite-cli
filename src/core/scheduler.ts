@@ -174,26 +174,21 @@ export function registerJob(params: {
 
 export function cancelJob(id: string): boolean {
   const registry = loadRegistry()
-  const job = registry.jobs.find((j) => j.id === id)
-  if (!job) return false
-
-  job.status = 'cancelled'
+  const before = registry.jobs.length
+  registry.jobs = registry.jobs.filter((j) => j.id !== id)
+  if (registry.jobs.length === before) return false
   saveRegistry(registry)
   return true
 }
 
 export function cancelJobsForRepo(repoPath: string): number {
   const registry = loadRegistry()
-  let count = 0
-
-  for (const job of registry.jobs) {
-    if (job.repo === resolve(repoPath) && job.status === 'scheduled') {
-      job.status = 'cancelled'
-      count++
-    }
-  }
-
-  saveRegistry(registry)
+  const before = registry.jobs.length
+  registry.jobs = registry.jobs.filter(
+    (j) => !(j.repo === resolve(repoPath) && j.status === 'scheduled'),
+  )
+  const count = before - registry.jobs.length
+  if (count > 0) saveRegistry(registry)
   return count
 }
 
