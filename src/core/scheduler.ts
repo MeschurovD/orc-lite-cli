@@ -129,7 +129,8 @@ export function parseScheduleTime(input: string): Date {
 }
 
 export function formatScheduleTime(date: Date): string {
-  return date.toISOString().slice(0, 16).replace('T', ' ')
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 // ─── Job management ───────────────────────────────────────────────────────────

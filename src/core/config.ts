@@ -126,7 +126,10 @@ const baseSchema = z.object({
 
 // Raw config can have either "queues" or legacy "tasks"
 const rawConfigSchema = baseSchema.extend({
-  queues: z.array(queueSchema).optional(),
+  queues: z.preprocess(
+    (val) => val === 'none' ? [] : val,
+    z.array(queueSchema).optional(),
+  ),
   tasks: z.array(taskSchema).optional(),
 }).superRefine((data, ctx) => {
   if (data.git_strategy === 'branch' && !data.target_branch) {
@@ -170,7 +173,7 @@ export function loadConfig(configPath?: string): { config: OrcLiteConfig; path: 
   } else if (data.tasks && data.tasks.length > 0) {
     queues = [{ name: 'default', schedule: null, status: 'pending', tasks: data.tasks as TaskDefinition[] }]
   } else {
-    throw new Error('Config must have either "queues" or "tasks" array')
+    queues = []
   }
 
   const config: OrcLiteConfig = {

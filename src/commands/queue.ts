@@ -79,8 +79,10 @@ export async function queueAddCommand(
   console.log(chalk.dim('─'.repeat(30)))
   console.log()
 
+  const defaultQueueName = `queue-${config.queues.length + 1}`
   const queueName = name ?? (await input({
     message: 'Queue name:',
+    default: defaultQueueName,
     validate: (v) => v.trim().length > 0 ? true : 'Name is required',
   })).trim()
 
