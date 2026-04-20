@@ -25,11 +25,11 @@ Supports multiple task queues with an optional scheduler for overnight runs.
 | \`orc-lite queue add [name]\` | Add a new queue interactively |
 | \`orc-lite logs [task]\` | View task logs; --tail to follow |
 | \`orc-lite validate\` | Check config, files, git, opencode availability |
-| \`orc-lite schedule [N] <time>\` | Set schedule for a queue |
+| \`orc-lite schedule [N] <time>\` | Set schedule for a queue, register it, and auto-start daemon |
 | \`orc-lite schedule --list\` | List all scheduled jobs (all repos) |
 | \`orc-lite schedule --cancel [id]\` | Cancel scheduled job(s) |
-| \`orc-lite register\` | Register queues with schedule into global scheduler |
-| \`orc-lite daemon\` | Start background scheduler process |
+| \`orc-lite register\` | Register queues from config into global scheduler; auto-starts daemon |
+| \`orc-lite daemon\` | Start background scheduler process manually |
 | \`orc-lite docs\` | Generate this reference file in the project |
 
 ## Config: \`orc-lite.config.json\`
@@ -189,11 +189,14 @@ Per-queue \`tasks_dir\` overrides the global one for that queue only. Queues wit
 | \`stages.test.timeout\` | number | — | Override timeout for the test stage |
 | \`daemon.poll_interval\` | number | \`60\` | Seconds between scheduler.json re-reads |
 | \`daemon.log_file\` | string | — | Path for daemon log output |
-| \`notifications.telegram\` | object | — | \`bot_token\` + \`chat_id\` |
-| \`notifications.webhook\` | string | — | Generic webhook URL (POST with JSON) |
-| \`notifications.proxy\` | string | — | HTTP proxy for notifications |
-| \`notifications.use_env_proxy\` | boolean | \`false\` | Auto-detect HTTPS_PROXY from env |
-| \`notifications.on\` | string[] | — | Events to notify on |
+| \`notifications.telegram.bot_token\` | string | — | Telegram bot token (or env var \`BOT_TOKEN\`) |
+| \`notifications.telegram.chat_id\` | string | — | Telegram chat/channel ID (or env var \`CHAT_ID\`) |
+| \`notifications.telegram.proxy\` | string | — | HTTP proxy for Telegram specifically (overrides global proxy) |
+| \`notifications.telegram.use_env_proxy\` | boolean | \`false\` | Auto-detect proxy from env for Telegram |
+| \`notifications.webhook\` | string | — | Generic webhook URL (POST with JSON payload) |
+| \`notifications.proxy\` | string | — | HTTP proxy for all notifications |
+| \`notifications.use_env_proxy\` | boolean | \`false\` | Auto-detect HTTPS_PROXY / HTTP_PROXY from env |
+| \`notifications.on\` | string[] | — | Events to notify: \`task_done\`, \`task_failed\`, \`task_conflict\`, \`pipeline_done\`, \`pipeline_failed\` |
 
 ### Commit Template Variables
 
@@ -438,6 +441,63 @@ orc-lite run
 | Mark as skipped | sets status to \`skipped\` |
 
 The queue status (\`failed\`/\`in_progress\`) is reset to \`pending\` automatically.
+
+## Notifications
+
+### Telegram setup
+
+1. Create a bot via [@BotFather](https://t.me/BotFather), copy the bot token.
+2. Get your chat ID: add the bot to a chat/channel, then call \`https://api.telegram.org/bot<token>/getUpdates\`.
+3. Add to config:
+
+\`\`\`json
+{
+  "notifications": {
+    "telegram": {
+      "bot_token": "123456:ABC-DEF...",
+      "chat_id": "-1001234567890"
+    },
+    "on": ["task_done", "task_failed", "task_conflict", "pipeline_done", "pipeline_failed"]
+  }
+}
+\`\`\`
+
+**Env vars instead of config** — \`bot_token\` and \`chat_id\` can be omitted if set as env variables:
+
+\`\`\`bash
+export BOT_TOKEN=123456:ABC-DEF...
+export CHAT_ID=-1001234567890
+\`\`\`
+
+**Proxy** (if Telegram is blocked):
+
+\`\`\`json
+{
+  "notifications": {
+    "telegram": {
+      "bot_token": "...",
+      "chat_id": "...",
+      "proxy": "http://user:pass@host:3128"
+    },
+    "on": ["task_failed", "pipeline_done"]
+  }
+}
+\`\`\`
+
+Or set \`"use_env_proxy": true\` to pick up \`HTTPS_PROXY\` / \`HTTP_PROXY\` automatically.
+
+### Webhook
+
+POST request with JSON body \`{ event, message, taskFile, durationMs, error, ... }\`:
+
+\`\`\`json
+{
+  "notifications": {
+    "webhook": "https://hooks.example.com/orc-lite",
+    "on": ["pipeline_done", "pipeline_failed"]
+  }
+}
+\`\`\`
 
 ## Scheduler Workflow (overnight)
 

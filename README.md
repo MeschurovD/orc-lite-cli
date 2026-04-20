@@ -242,7 +242,7 @@ orc-lite queue add nightly --schedule 2:30  # with schedule
 
 ### `orc-lite schedule [queue] <time>`
 
-Set a schedule for a queue and register it in the global scheduler.
+Set a schedule for a queue, save it to config, register the job in the global scheduler, and auto-start the background daemon if it isn't already running.
 
 ```bash
 orc-lite schedule 2:30                   # first pending queue at 2:30 AM
@@ -268,7 +268,7 @@ orc-lite schedule --cancel <id>      # cancel specific job by ID
 
 ### `orc-lite register`
 
-Read `orc-lite.config.json`, find queues with `schedule` field, and register them in the global scheduler (`~/.orc-lite/scheduler.json`).
+Read `orc-lite.config.json`, find queues with `schedule` field, and register them in the global scheduler (`~/.orc-lite/scheduler.json`). Also auto-starts the background daemon if it isn't already running.
 
 Use this after editing the config manually to set schedules.
 
@@ -497,21 +497,49 @@ that need different behaviour.
 }
 ```
 
-### Notifications (Telegram)
+### Notifications
+
+#### Telegram setup
+
+1. Create a bot via [@BotFather](https://t.me/BotFather), copy the bot token.
+2. Get your chat ID: add the bot to a chat/channel, then call `https://api.telegram.org/bot<token>/getUpdates`.
+3. Add to config:
 
 ```jsonc
 {
   "notifications": {
     "telegram": {
-      "bot_token": "...",
-      "chat_id": "...",
-      "proxy": "http://proxy:3128",   // optional
-      "use_env_proxy": false
+      "bot_token": "123456:ABC-DEF...",
+      "chat_id": "-1001234567890",
+      "proxy": "http://user:pass@host:3128",  // optional, if Telegram is blocked
+      "use_env_proxy": false                  // or true to pick up HTTPS_PROXY from env
     },
-    "on": ["task_done", "task_failed", "pipeline_done", "pipeline_failed"]
+    "on": ["task_done", "task_failed", "task_conflict", "pipeline_done", "pipeline_failed"]
   }
 }
 ```
+
+**`bot_token` and `chat_id` can be set via env vars instead of hardcoding in config:**
+
+```bash
+export BOT_TOKEN=123456:ABC-DEF...
+export CHAT_ID=-1001234567890
+```
+
+#### Webhook
+
+POST request with JSON body `{ event, message, taskFile, durationMs, error, ... }`:
+
+```jsonc
+{
+  "notifications": {
+    "webhook": "https://hooks.example.com/orc-lite",
+    "on": ["pipeline_done", "pipeline_failed"]
+  }
+}
+```
+
+**Notification events:** `task_done`, `task_failed`, `task_conflict`, `pipeline_done`, `pipeline_failed`
 
 ---
 
