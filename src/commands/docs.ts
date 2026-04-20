@@ -445,9 +445,8 @@ The queue status (\`failed\`/\`in_progress\`) is reset to \`pending\` automatica
 # Schedule a queue
 orc-lite schedule 2:00
 
-# Register + start daemon
+# Register queues — daemon starts automatically in background
 orc-lite register
-orc-lite daemon &
 
 # Check results next morning
 orc-lite status
