@@ -79,7 +79,7 @@ async function interactiveAdd(
   _options: AddOptions,
 ): Promise<void> {
   console.log()
-  console.log(chalk.bold('orc-lite') + chalk.dim(' — add tasks'))
+  console.log(chalk.bold('orc-lite') + chalk.dim(' — add / remove / reorder tasks'))
   console.log(chalk.dim('─'.repeat(30)))
   console.log()
 
@@ -109,129 +109,191 @@ async function interactiveAdd(
   const tasksDir = queue.tasks_dir ?? config.tasks_dir
   const resolvedDir = resolve(cwd, tasksDir)
 
-  // ── 2. Collect available files ───────────────────────────────────────────────
+  // ── 2. File selection — check to add, uncheck to remove ─────────────────────
 
-  const existingFiles = new Set(queue.tasks.map((t) => t.file))
-  let availableFiles: string[] = []
+  const tasksByFile = new Map(queue.tasks.map((t) => [t.file, t]))
+  const isRemovable = (t: TaskDefinition) => t.status === 'pending' || t.status === 'failed'
 
-  if (existsSync(resolvedDir)) {
-    availableFiles = readdirSync(resolvedDir)
-      .filter((f) => f.endsWith('.md'))
-      .sort()
+  const diskFiles: string[] = existsSync(resolvedDir)
+    ? readdirSync(resolvedDir).filter((f) => f.endsWith('.md')).sort()
+    : []
+
+  type FileChoice = { name: string; value: string; checked?: boolean; disabled?: string | false }
+  const fileChoices: FileChoice[] = []
+
+  // Existing queue tasks (in queue order): removable = checked, others = disabled
+  for (const task of queue.tasks) {
+    if (isRemovable(task)) {
+      const suffix = task.status === 'failed' ? chalk.red(' (failed)') : ''
+      fileChoices.push({ name: task.file + suffix, value: task.file, checked: true })
+    } else {
+      fileChoices.push({ name: task.file, value: task.file, disabled: chalk.dim(`(${task.status})`) })
+    }
   }
 
-  const fileChoices = availableFiles.map((f) => ({
-    name: f,
-    value: f,
-    disabled: existingFiles.has(f) ? chalk.dim('(already added)') : false,
-  }))
+  // Files on disk not yet in queue
+  for (const f of diskFiles) {
+    if (!tasksByFile.has(f)) {
+      fileChoices.push({ name: f, value: f, checked: false })
+    }
+  }
 
-  // Add a separator and "new file" option
-  fileChoices.push({
-    name: chalk.dim('+ Enter new filename'),
-    value: '__new__',
-    disabled: false,
-  })
+  // New file option
+  fileChoices.push({ name: chalk.dim('+ Enter new filename'), value: '__new__' })
 
   let selectedFiles: string[] = []
 
   if (fileChoices.length <= 1) {
-    // No existing md files — go straight to new filename
     console.log(chalk.dim(`  No .md files found in ${tasksDir}`))
   } else {
     selectedFiles = await checkbox({
-      message: 'Select files to add:',
+      message: 'Queue tasks  ' + chalk.dim('(space = toggle, uncheck to remove)') + ':',
       choices: fileChoices,
     })
   }
 
-  // Handle "new file" option
-  if (selectedFiles.includes('__new__') || selectedFiles.length === 0) {
-    selectedFiles = selectedFiles.filter((f) => f !== '__new__')
+  // Determine what changed
+  const checkedSet = new Set(selectedFiles.filter((f) => f !== '__new__'))
+  const toRemove = queue.tasks.filter((t) => isRemovable(t) && !checkedSet.has(t.file))
+  const toAdd = [...checkedSet].filter((f) => !tasksByFile.has(f))
+
+  // Handle new file input
+  let newFiles: string[] = []
+  if (selectedFiles.includes('__new__')) {
     const newFile = (await input({
       message: 'New filename:',
       validate: (v) => v.endsWith('.md') ? true : 'Must end with .md',
     })).trim()
-    if (newFile) selectedFiles.push(newFile)
+    if (newFile) newFiles = [newFile]
+  } else if (selectedFiles.length === 0 && queue.tasks.length === 0) {
+    const newFile = (await input({
+      message: 'New filename:',
+      validate: (v) => v.endsWith('.md') ? true : 'Must end with .md',
+    })).trim()
+    if (newFile) newFiles = [newFile]
   }
 
-  if (selectedFiles.length === 0) {
-    console.log(chalk.yellow('No files selected.'))
+  const allToAdd = [...toAdd, ...newFiles]
+
+  if (toRemove.length === 0 && allToAdd.length === 0) {
+    console.log(chalk.yellow('No changes.'))
     return
   }
 
-  // ── 3. Optional task options ─────────────────────────────────────────────────
-
-  const configureOpts = await select({
-    message: 'Task options:',
-    choices: [
-      { name: 'Skip — add with defaults', value: false },
-      { name: 'Configure — set stages, retries, context files', value: true },
-    ],
-  })
+  // ── 3. Configure options for newly added tasks ───────────────────────────────
 
   let taskStages: string[] | undefined
   let contextFiles: string | undefined
   let retries: string | undefined
 
-  if (configureOpts) {
-    const stageChoices = await checkbox({
-      message: 'Stages:',
+  if (allToAdd.length > 0) {
+    const configureOpts = await select({
+      message: 'Task options for new tasks:',
       choices: [
-        { name: 'implement', value: 'implement', checked: true },
-        { name: 'verify', value: 'verify' },
-        { name: 'test', value: 'test' },
+        { name: 'Skip — add with defaults', value: false },
+        { name: 'Configure — set stages, retries, context files', value: true },
       ],
     })
-    taskStages = stageChoices.length > 0 ? stageChoices : undefined
 
-    contextFiles = (await input({
-      message: 'Context files (comma-separated, leave empty to skip):',
-    })).trim()
+    if (configureOpts) {
+      const stageChoices = await checkbox({
+        message: 'Stages:',
+        choices: [
+          { name: 'implement', value: 'implement', checked: true },
+          { name: 'verify', value: 'verify' },
+          { name: 'test', value: 'test' },
+        ],
+      })
+      taskStages = stageChoices.length > 0 ? stageChoices : undefined
 
-    retries = (await input({
-      message: 'Max retries (leave empty to skip):',
-    })).trim()
+      contextFiles = (await input({
+        message: 'Context files (comma-separated, leave empty to skip):',
+      })).trim()
+
+      retries = (await input({
+        message: 'Max retries (leave empty to skip):',
+      })).trim()
+    }
   }
 
-  // ── 4. Add tasks ─────────────────────────────────────────────────────────────
+  // ── 4. Apply changes ─────────────────────────────────────────────────────────
 
   const label = queue.name ?? `#${qi + 1}`
+
+  // Remove unchecked tasks
+  if (toRemove.length > 0) {
+    const removeSet = new Set(toRemove.map((t) => t.file))
+    config.queues[qi].tasks = config.queues[qi].tasks.filter((t) => !removeSet.has(t.file))
+  }
+
+  // Add new tasks
   let added = 0
-
-  for (const f of selectedFiles) {
-    if (existingFiles.has(f)) {
-      console.log(chalk.yellow(`  Skipped "${f}" (already in queue)`))
-      continue
-    }
-
+  for (const f of allToAdd) {
     createTaskFile(cwd, tasksDir, f)
-
     const task: TaskDefinition = { file: f, status: 'pending' }
-
-    if (taskStages && taskStages.length > 0) {
-      task.stages = taskStages as ('implement' | 'verify' | 'test')[]
-    }
-    if (contextFiles) {
-      task.context_files = contextFiles.split(',').map((s) => s.trim()).filter(Boolean)
-    }
-    if (retries) {
-      const n = parseInt(retries, 10)
-      if (!isNaN(n)) task.max_retries = n
-    }
-
+    if (taskStages && taskStages.length > 0) task.stages = taskStages as ('implement' | 'verify' | 'test')[]
+    if (contextFiles) task.context_files = contextFiles.split(',').map((s) => s.trim()).filter(Boolean)
+    if (retries) { const n = parseInt(retries, 10); if (!isNaN(n)) task.max_retries = n }
     config.queues[qi].tasks.push(task)
     added++
+  }
+
+  // ── 5. Reorder pending tasks ─────────────────────────────────────────────────
+
+  const pendingCount = config.queues[qi].tasks.filter((t) => t.status === 'pending').length
+  if (pendingCount > 1) {
+    const shouldReorder = await select({
+      message: 'Reorder pending tasks?',
+      choices: [
+        { name: 'No — keep current order', value: false },
+        { name: 'Yes — pick execution order', value: true },
+      ],
+    })
+
+    if (shouldReorder) {
+      config.queues[qi].tasks = await reorderPendingTasks(config.queues[qi].tasks)
+    }
   }
 
   saveConfig(configPath, config)
 
   console.log()
-  console.log(
-    chalk.green('✓') +
-    ` Added ${added} task${added !== 1 ? 's' : ''} to queue ${chalk.bold(label)}`,
-  )
+  if (toRemove.length > 0) {
+    console.log(chalk.red('✓') + ` Removed ${toRemove.length} task${toRemove.length !== 1 ? 's' : ''} from queue ${chalk.bold(label)}`)
+  }
+  if (added > 0) {
+    console.log(chalk.green('✓') + ` Added ${added} task${added !== 1 ? 's' : ''} to queue ${chalk.bold(label)}`)
+  }
   console.log()
+}
+
+// ─── Reorder pending tasks interactively ──────────────────────────────────────
+
+async function reorderPendingTasks(tasks: TaskDefinition[]): Promise<TaskDefinition[]> {
+  const pool = tasks.filter((t) => t.status === 'pending')
+  const ordered: TaskDefinition[] = []
+
+  console.log()
+  while (pool.length > 1) {
+    const pos = ordered.length + 1
+    const total = ordered.length + pool.length
+    const idx = await select({
+      message: `Position ${pos} of ${total}:`,
+      choices: pool.map((t, i) => ({ name: t.file, value: i })),
+    })
+    ordered.push(pool[idx])
+    pool.splice(idx, 1)
+  }
+  ordered.push(pool[0])
+  console.log()
+
+  // Replace pending slots in-place (preserves positions of done/failed/etc. tasks)
+  const result = [...tasks]
+  const pendingSlots: number[] = []
+  result.forEach((t, i) => { if (t.status === 'pending') pendingSlots.push(i) })
+  pendingSlots.forEach((slotIdx, i) => { result[slotIdx] = ordered[i] })
+
+  return result
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
