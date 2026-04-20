@@ -12,13 +12,45 @@ interface UsageAccum {
   costUsd: number
 }
 
-function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: UsageAccum, outputParts: string[]): void {
+interface DisplayState {
+  atLineStart: boolean
+}
+
+function writeText(text: string, teeStream: NodeJS.WritableStream, state: DisplayState): void {
+  if (!text) return
+  // Ensure we're on a fresh line before text
+  if (!state.atLineStart) {
+    teeStream.write('\n')
+    state.atLineStart = true
+  }
+  // Indent each line of text
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]
+    if (l) teeStream.write('  ' + l)
+    if (i < lines.length - 1) {
+      teeStream.write('\n')
+    }
+  }
+  // Always end with a newline so next output starts clean
+  teeStream.write('\n')
+  state.atLineStart = true
+}
+
+function processJsonLine(
+  line: string,
+  teeStream: NodeJS.WritableStream,
+  usage: UsageAccum,
+  outputParts: string[],
+  state: DisplayState,
+): void {
   let event: Record<string, unknown>
   try {
     event = JSON.parse(line) as Record<string, unknown>
   } catch {
     // Not JSON — display as-is (e.g. opencode startup messages)
     teeStream.write(line + '\n')
+    state.atLineStart = true
     return
   }
 
@@ -30,13 +62,13 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
     // opencode native events
     case 'text': {
       const text = (part?.['text'] ?? event['text']) as string | undefined
-      if (text) { teeStream.write(text); outputParts.push(text) }
+      if (text) { writeText(text, teeStream, state); outputParts.push(text) }
       break
     }
 
     case 'tool_use': {
       const name = (part?.['tool'] ?? part?.['name'] ?? event['toolName']) as string | undefined
-      if (name) teeStream.write(`\n  [tool: ${name}]\n`)
+      if (name) { teeStream.write(`\n  [tool: ${name}]\n`); state.atLineStart = true }
       break
     }
 
@@ -47,7 +79,7 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
     // legacy / SDK events
     case 'text-delta': {
       const text = (event['text'] ?? event['textDelta']) as string | undefined
-      if (text) { teeStream.write(text); outputParts.push(text) }
+      if (text) { writeText(text, teeStream, state); outputParts.push(text) }
       break
     }
 
@@ -133,6 +165,7 @@ export class OpenCodeAdapter {
 
       const usage: UsageAccum = { inputTokens: 0, outputTokens: 0, costUsd: 0 }
       const outputParts: string[] = []
+      const displayState: DisplayState = { atLineStart: true }
       let lineBuffer = ''
 
       child.stdout.on('data', (chunk: Buffer) => {
@@ -143,7 +176,7 @@ export class OpenCodeAdapter {
         const lines = lineBuffer.split('\n')
         lineBuffer = lines.pop() ?? ''
         for (const line of lines) {
-          if (line.trim()) processJsonLine(line, teeStream, usage, outputParts)
+          if (line.trim()) processJsonLine(line, teeStream, usage, outputParts, displayState)
         }
       })
 
@@ -161,7 +194,7 @@ export class OpenCodeAdapter {
 
       child.on('close', (code) => {
         clearTimeout(timer)
-        if (lineBuffer.trim()) processJsonLine(lineBuffer, teeStream, usage, outputParts)
+        if (lineBuffer.trim()) processJsonLine(lineBuffer, teeStream, usage, outputParts, displayState)
 
         const durationMs = Date.now() - startTime
         const exitCode = killed ? 124 : (code ?? 1)
