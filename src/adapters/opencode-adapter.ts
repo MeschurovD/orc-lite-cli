@@ -12,7 +12,7 @@ interface UsageAccum {
   costUsd: number
 }
 
-function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: UsageAccum): void {
+function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: UsageAccum, outputParts: string[]): void {
   let event: Record<string, unknown>
   try {
     event = JSON.parse(line) as Record<string, unknown>
@@ -30,7 +30,7 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
     // opencode native events
     case 'text': {
       const text = (part?.['text'] ?? event['text']) as string | undefined
-      if (text) teeStream.write(text)
+      if (text) { teeStream.write(text); outputParts.push(text) }
       break
     }
 
@@ -47,7 +47,7 @@ function processJsonLine(line: string, teeStream: NodeJS.WritableStream, usage: 
     // legacy / SDK events
     case 'text-delta': {
       const text = (event['text'] ?? event['textDelta']) as string | undefined
-      if (text) teeStream.write(text)
+      if (text) { teeStream.write(text); outputParts.push(text) }
       break
     }
 
@@ -132,6 +132,7 @@ export class OpenCodeAdapter {
       })
 
       const usage: UsageAccum = { inputTokens: 0, outputTokens: 0, costUsd: 0 }
+      const outputParts: string[] = []
       let lineBuffer = ''
 
       child.stdout.on('data', (chunk: Buffer) => {
@@ -142,7 +143,7 @@ export class OpenCodeAdapter {
         const lines = lineBuffer.split('\n')
         lineBuffer = lines.pop() ?? ''
         for (const line of lines) {
-          if (line.trim()) processJsonLine(line, teeStream, usage)
+          if (line.trim()) processJsonLine(line, teeStream, usage, outputParts)
         }
       })
 
@@ -160,7 +161,7 @@ export class OpenCodeAdapter {
 
       child.on('close', (code) => {
         clearTimeout(timer)
-        if (lineBuffer.trim()) processJsonLine(lineBuffer, teeStream, usage)
+        if (lineBuffer.trim()) processJsonLine(lineBuffer, teeStream, usage, outputParts)
 
         const durationMs = Date.now() - startTime
         const exitCode = killed ? 124 : (code ?? 1)
@@ -172,6 +173,7 @@ export class OpenCodeAdapter {
           durationMs,
           tokensUsed: totalTokens || undefined,
           costUsd: usage.costUsd || undefined,
+          output: outputParts.join(''),
         })
       })
     })
