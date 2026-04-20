@@ -175,7 +175,14 @@ async function interactiveAdd(
 
   const allToAdd = [...toAdd, ...newFiles]
 
-  if (toRemove.length === 0 && allToAdd.length === 0) {
+  const pendingAfterChanges = queue.tasks
+    .filter((t) => t.status === 'pending' && !toRemove.some((r) => r.file === t.file))
+    .concat(allToAdd.map((f) => ({ file: f, status: 'pending' as const })))
+
+  const hasChanges = toRemove.length > 0 || allToAdd.length > 0
+  const canReorder = pendingAfterChanges.length > 1
+
+  if (!hasChanges && !canReorder) {
     console.log(chalk.yellow('No changes.'))
     return
   }
@@ -240,8 +247,8 @@ async function interactiveAdd(
 
   // ── 5. Reorder pending tasks ─────────────────────────────────────────────────
 
-  const pendingCount = config.queues[qi].tasks.filter((t) => t.status === 'pending').length
-  if (pendingCount > 1) {
+  let reordered = false
+  if (canReorder) {
     const shouldReorder = await select({
       message: 'Reorder pending tasks?',
       choices: [
@@ -252,7 +259,13 @@ async function interactiveAdd(
 
     if (shouldReorder) {
       config.queues[qi].tasks = await reorderPendingTasks(config.queues[qi].tasks)
+      reordered = true
     }
+  }
+
+  if (!hasChanges && !reordered) {
+    console.log(chalk.yellow('No changes.'))
+    return
   }
 
   saveConfig(configPath, config)
@@ -263,6 +276,9 @@ async function interactiveAdd(
   }
   if (added > 0) {
     console.log(chalk.green('✓') + ` Added ${added} task${added !== 1 ? 's' : ''} to queue ${chalk.bold(label)}`)
+  }
+  if (reordered) {
+    console.log(chalk.cyan('✓') + ` Tasks reordered in queue ${chalk.bold(label)}`)
   }
   console.log()
 }
