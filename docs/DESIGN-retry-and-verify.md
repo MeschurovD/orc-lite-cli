@@ -258,7 +258,7 @@ interface RetryConfig {
 |------|-------------|
 | `types.ts` | Новый `RetryConfig`, расширение `StageConfig`, `StageContext`, `OrcLiteConfig`, `TaskDefinition` |
 | `core/config.ts` | Zod-схема: `on_fail` → `z.enum(['stop', 'continue', 'retry'])`, новая `retryConfigSchema`, добавить `retry` в `baseSchema` и `taskSchema` |
-| `adapters/prompt-builder.ts` | Новая функция `buildRetryImplementPrompt(...)` |
+| `opencode-adapter/prompts.ts` | Новая функция `buildRetryImplementPrompt(...)` |
 | `core/task-runner.ts` | Заменить простой `for (stage of stages)` на логику с inner verify-retry loop; добавить расчёт задержки между outer retries |
 | `core/stages/implement.ts` | Поддержка `isRetry` + `verifyIssues` — выбор между обычным и retry промтом |
 | `core/stages/index.ts` | Расширение `StageContext` |
@@ -296,7 +296,7 @@ verify(attempt=1)
 
 1. Расширить типы в `types.ts` — `RetryConfig`, `StageConfig.on_fail`, `StageContext` поля
 2. Обновить zod-схему в `config.ts` — `retryConfigSchema`, `on_fail: retry`, добавить в `baseSchema` и `taskSchema`
-3. Добавить `buildRetryImplementPrompt` в `prompt-builder.ts`
+3. Добавить `buildRetryImplementPrompt` в `opencode-adapter/prompts.ts`
 4. Обновить `stages/index.ts` — расширить `StageContext`
 5. Обновить `stages/implement.ts` — поддержка `isRetry`, выбор промта
 6. Реализовать inner verify-retry loop в `task-runner.ts`

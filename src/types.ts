@@ -1,4 +1,9 @@
-import type { Writable } from 'node:stream'
+import type { OpenCodeAdapterOptions } from './opencode-adapter/types.js'
+export type {
+  AdapterExecuteParams,
+  AdapterResult,
+  OpenCodeAdapterOptions,
+} from './opencode-adapter/types.js'
 
 // ─── Task ────────────────────────────────────────────────────────────────────
 
@@ -137,11 +142,6 @@ export type PushMode = 'each' | 'end' | 'none'
 
 export type GitStrategy = 'branch' | 'commit' | 'none'
 
-export interface OpenCodeAdapterOptions {
-  timeout?: number
-  insecure_tls?: boolean
-}
-
 export interface OrcLiteConfig {
   project_name?: string
   target_branch: string  // empty string allowed when git_strategy !== 'branch'
@@ -162,25 +162,6 @@ export interface OrcLiteConfig {
   auto_pr?: AutoPrConfig
   daemon?: DaemonConfig
   queues: QueueDefinition[]
-}
-
-// ─── Adapter ─────────────────────────────────────────────────────────────────
-
-export interface AdapterExecuteParams {
-  prompt: string
-  workingDir: string
-  timeout: number
-  teeStream: Writable
-  fullLogStream?: Writable
-}
-
-export interface AdapterResult {
-  exitCode: number
-  success: boolean
-  durationMs: number
-  tokensUsed?: number
-  costUsd?: number
-  output?: string
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────

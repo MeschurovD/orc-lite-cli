@@ -13,8 +13,8 @@
 | Оркестратор | `core/orchestrator.ts` | Упрощение: убрать UI-события, работа с очередями вместо плоского tasks |
 | Task Runner | `core/task-runner.ts` | Без изменений по логике |
 | Stages | `core/stages/*` | Перенести implement, verify, test |
-| OpenCode адаптер | `adapters/opencode-adapter.ts` | Единственный адаптер |
-| Prompt Builder | `adapters/prompt-builder.ts` | Убрать упоминания других адаптеров |
+| OpenCode адаптер | `opencode-adapter/*` | Единственный адаптер, изолирован для будущего выноса |
+| Prompt Builder | `opencode-adapter/prompts.ts` | Убрать упоминания других адаптеров |
 | Git-сервис | `services/git.ts` | Без изменений |
 | Логгер | `services/logger.ts` | Убрать EventBus интеграцию |
 | Нотификации | `services/notifier.ts` | Telegram + webhook, прокси |
@@ -342,9 +342,12 @@ orc-lite-cli/
 │   │       ├── implement.ts      # Имплементация
 │   │       ├── verify.ts         # Верификация
 │   │       └── test.ts           # Тесты
-│   ├── adapters/
-│   │   ├── opencode-adapter.ts   # Единственный адаптер
-│   │   └── prompt-builder.ts     # Сборка промптов
+│   ├── opencode-adapter/
+│   │   ├── index.ts              # Публичные экспорты адаптера
+│   │   ├── adapter.ts            # Запуск opencode run --format json
+│   │   ├── events.ts             # Парсинг JSON-событий и сбор вывода
+│   │   ├── prompts.ts            # Сборка промптов
+│   │   └── types.ts              # Типы адаптера
 │   ├── services/
 │   │   ├── git.ts                # Git операции
 │   │   ├── logger.ts             # Логирование

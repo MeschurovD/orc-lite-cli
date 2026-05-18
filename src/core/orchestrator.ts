@@ -6,8 +6,8 @@ import { loadConfig, getTaskBranchName, updateTaskStatus, updateQueueStatus } fr
 import { GitService } from '../services/git.js'
 import { pipelineLogger } from '../services/logger.js'
 import { createNotifier } from '../services/notifier.js'
-import { buildPrompt } from '../adapters/prompt-builder.js'
-import { createAdapter } from '../adapters/opencode-adapter.js'
+import { createAdapter } from '../opencode-adapter/adapter.js'
+import { buildPrompt } from '../opencode-adapter/prompts.js'
 import { runTask } from './task-runner.js'
 import type { QueueResult, AutoPrConfig, QueueDefinition } from '../types.js'
 

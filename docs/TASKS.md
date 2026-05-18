@@ -13,8 +13,8 @@
 - [x] **2.3** Перенести `services/git.ts` - без изменений
 - [x] **2.4** Перенести `services/logger.ts` - убрать EventBus
 - [x] **2.5** Перенести `services/notifier.ts` - Telegram + webhook + прокси
-- [x] **2.6** Перенести `adapters/opencode-adapter.ts` - единственный адаптер, убрать фабрику
-- [x] **2.7** Перенести `adapters/prompt-builder.ts`
+- [x] **2.6** Перенести `opencode-adapter/adapter.ts` - единственный адаптер, убрать фабрику
+- [x] **2.7** Перенести `opencode-adapter/prompts.ts`
 - [x] **2.8** Перенести `core/stages/*` - implement, verify, test
 - [x] **2.9** Перенести `core/task-runner.ts` - адаптировать под единственный адаптер
 - [x] **2.10** Перенести `core/orchestrator.ts` - убрать EventBus, UI-события, упростить

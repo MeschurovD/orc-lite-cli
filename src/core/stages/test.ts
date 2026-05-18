@@ -1,5 +1,5 @@
-import { buildTestPrompt } from '../../adapters/prompt-builder.js'
-import { createAdapter } from '../../adapters/opencode-adapter.js'
+import { createAdapter } from '../../opencode-adapter/adapter.js'
+import { buildTestPrompt } from '../../opencode-adapter/prompts.js'
 import type { StageResult } from '../../types.js'
 import type { StageContext } from './index.js'
 

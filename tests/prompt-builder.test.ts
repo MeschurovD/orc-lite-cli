@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { buildPrompt, buildVerifyPrompt, buildTestPrompt } from '../src/adapters/prompt-builder.js'
+import { buildPrompt, buildVerifyPrompt, buildTestPrompt } from '../src/opencode-adapter/prompts.js'
 
 // ─── buildPrompt ──────────────────────────────────────────────────────────────
 

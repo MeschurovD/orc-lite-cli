@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
-vi.mock('../src/adapters/opencode-adapter.js', () => ({
+vi.mock('../src/opencode-adapter/adapter.js', () => ({
   createAdapter: vi.fn(),
 }))
 
@@ -49,7 +49,7 @@ vi.mock('../src/core/config.js', async (importOriginal) => {
   }
 })
 
-import { createAdapter } from '../src/adapters/opencode-adapter.js'
+import { createAdapter } from '../src/opencode-adapter/adapter.js'
 import { GitService } from '../src/services/git.js'
 import { runTask } from '../src/core/task-runner.js'
 import type { OrcLiteConfig, TaskDefinition } from '../src/types.js'

@@ -1,7 +1,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import { buildVerifyPrompt } from '../../adapters/prompt-builder.js'
-import { createAdapter } from '../../adapters/opencode-adapter.js'
+import { createAdapter } from '../../opencode-adapter/adapter.js'
+import { buildVerifyPrompt } from '../../opencode-adapter/prompts.js'
 import type { StageResult } from '../../types.js'
 import type { StageContext } from './index.js'
 

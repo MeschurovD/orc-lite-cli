@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import chalk from 'chalk'
 import { loadConfig } from '../core/config.js'
 import { GitService } from '../services/git.js'
-import { createAdapter } from '../adapters/opencode-adapter.js'
+import { createAdapter } from '../opencode-adapter/adapter.js'
 
 function ok(msg: string): void {
   console.log(`${chalk.green('✓')} ${msg}`)

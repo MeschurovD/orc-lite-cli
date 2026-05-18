@@ -120,11 +120,11 @@ describe('parseVerifyOutput', () => {
 // ─── runVerifyStage — threshold and on_fail ───────────────────────────────────
 // We mock the opencode adapter to avoid spawning real processes.
 
-vi.mock('../src/adapters/opencode-adapter.js', () => ({
+vi.mock('../src/opencode-adapter/adapter.js', () => ({
   createAdapter: vi.fn(),
 }))
 
-import { createAdapter } from '../src/adapters/opencode-adapter.js'
+import { createAdapter } from '../src/opencode-adapter/adapter.js'
 import { runVerifyStage } from '../src/core/stages/verify.js'
 import { runTestStage } from '../src/core/stages/test.js'
 import type { StageContext } from '../src/core/stages/index.js'
